@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+
+  html {
+    scrollbar-gutter: stable;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-apple-gray text-apple-text-1 font-sans;
+    margin: 0;
+    padding: 0;
+  }
+
+  button {
+    cursor: pointer;
+    border: none;
+    background: none;
+    font-family: inherit;
+  }
+
+  input, select, textarea {
+    font-family: inherit;
+  }
+}
+
+@layer components {
+  /* ─── Buttons ─── */
+  .btn-base {
+    @apply inline-flex items-center justify-center gap-2 rounded-full text-sm font-medium transition-all duration-200 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn-base bg-apple-blue text-white px-5 py-2.5 shadow-apple-xs hover:bg-apple-blue-hover active:scale-[0.98];
+  }
+
+  .btn-secondary {
+    @apply btn-base border border-apple-gray-3 bg-white text-apple-text-1 px-5 py-2.5 hover:bg-apple-gray active:scale-[0.98];
+  }
+
+  .btn-ghost {
+    @apply btn-base text-apple-blue px-4 py-2 hover:bg-apple-blue-light active:scale-[0.98];
+  }
+
+  .btn-danger {
+    @apply btn-base bg-apple-red text-white px-5 py-2.5 hover:opacity-90 active:scale-[0.98];
+  }
+
+  /* ─── Cards ─── */
+  .card {
+    @apply bg-white rounded-2xl border border-apple-gray-2 shadow-apple-xs;
+  }
+
+  .card-interactive {
+    @apply card transition-all duration-300 hover:shadow-apple-sm hover:-translate-y-0.5 cursor-pointer;
+  }
+
+  /* ─── Form Controls ─── */
+  .input-modern {
+    @apply w-full rounded-xl border border-apple-gray-3 bg-white px-4 py-3 text-sm text-apple-text-1 placeholder:text-apple-text-3 outline-none transition-all duration-200 focus:border-apple-blue focus:ring-2 focus:ring-apple-blue/20;
+  }
+
+  .label {
+    @apply block text-xs font-medium text-apple-text-2 mb-1.5;
+  }
+
+  /* ─── Utilities ─── */
+  .caption {
+    @apply text-[11px] font-medium uppercase tracking-wider text-apple-text-3;
+  }
+
+  .section-title {
+    @apply text-2xl font-semibold tracking-tight text-apple-text-1;
+  }
+
+  .divider {
+    @apply border-t border-apple-gray-2;
+  }
+}
+
