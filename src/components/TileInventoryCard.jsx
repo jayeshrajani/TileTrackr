@@ -7,6 +7,9 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
   const [loadingMap, setLoadingMap] = useState({})
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
 
+  const unit = tile?.unit || 'box'
+  const unitPlural = unit.endsWith('s') ? unit : `${unit}s`
+
   const startEdit = (row) => {
     setEditMap((prev) => ({
       ...prev,
@@ -48,17 +51,17 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
   return (
     <div className="space-y-6">
       {/* Basic Info Box */}
-      <section className="border border-slate-200 bg-white p-8">
+      <section className="card p-8">
         <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div className="flex-1 space-y-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-muted-light mb-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
                 Brand
               </p>
-              <p className="text-lg text-slate-900">{tile.brand}</p>
+              <p className="text-lg text-slate-800">{tile.brand}</p>
             </div>
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-muted-light mb-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
                 Product Name
               </p>
               <h2 className="text-3xl font-bold text-slate-900">
@@ -67,16 +70,16 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
             </div>
             <div className="grid grid-cols-2 gap-6">
               <div>
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-light mb-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
                   Size
                 </p>
-                <p className="text-lg font-bold text-accent">{tile.size}</p>
+                <p className="text-lg font-bold text-indigo-600">{tile.size}</p>
               </div>
               <div>
-                <p className="text-xs font-bold uppercase tracking-widest text-muted-light mb-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
                   Current Stock
                 </p>
-                <p className="text-lg font-bold text-accent">{totalBoxes} boxes</p>
+                <p className="text-lg font-bold text-indigo-600">{totalBoxes} {unitPlural}</p>
               </div>
             </div>
           </div>
@@ -84,7 +87,7 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
             <button
               type="button"
               onClick={() => setIsDetailsOpen(!isDetailsOpen)}
-              className="flex-1 md:flex-none border border-slate-300 bg-slate-50 px-6 py-3 text-sm font-bold uppercase text-slate-900 tracking-wide transition hover:bg-slate-100"
+              className="flex-1 md:flex-none btn-secondary px-6 py-3"
             >
               {isDetailsOpen ? '▼ Details' : '▶ Details'}
             </button>
@@ -101,24 +104,24 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
 
       {/* Detailed Info - Collapsible */}
       {isDetailsOpen && (
-        <section className="border border-slate-200 bg-white p-12 space-y-8">
+        <section className="card p-8 space-y-8">
           {/* Additional Attributes */}
           {(tile.finish || tile.category) && (
             <div className="grid grid-cols-2 gap-8">
               {tile.finish && (
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-widest text-muted-light mb-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
                     Finish
                   </p>
-                  <p className="text-lg font-bold text-slate-900">{tile.finish}</p>
+                  <p className="text-lg font-bold text-slate-800">{tile.finish}</p>
                 </div>
               )}
               {tile.category && (
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-widest text-muted-light mb-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
                     Category
                   </p>
-                  <p className="text-lg font-bold text-slate-900">{tile.category}</p>
+                  <p className="text-lg font-bold text-slate-800">{tile.category}</p>
                 </div>
               )}
             </div>
@@ -126,58 +129,58 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
 
           {/* Batch Stock Details */}
           {batches.length === 0 ? (
-            <div className="border-t border-slate-200 pt-8">
-              <p className="text-lg text-muted">No batches yet for this product.</p>
+            <div className="border-t border-slate-100 pt-8">
+              <p className="text-lg text-slate-400">No batches yet for this product.</p>
             </div>
           ) : (
-            <div className="border-t border-slate-200 pt-8 space-y-8">
+            <div className="border-t border-slate-100 pt-8 space-y-8">
               <h3 className="text-2xl font-bold text-slate-900">Batch Stock</h3>
               {batches.map((batch) => (
                 <article
                   key={batch.batch_code}
-                  className="border border-slate-200 bg-white p-8"
+                  className="border border-slate-100 bg-white rounded-xl p-6"
                 >
-                  <div className="flex items-start justify-between gap-6 mb-8">
+                  <div className="flex items-start justify-between gap-6 mb-6">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-widest text-muted-light">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                         Batch Code
                       </p>
-                      <p className="mt-2 text-2xl font-bold text-slate-900">
+                      <p className="mt-2 text-xl font-bold text-slate-900">
                         {batch.batch_code}
                       </p>
                     </div>
                   </div>
 
                   {batch.godowns.length === 0 ? (
-                    <p className="text-lg text-muted">No stock in any godown.</p>
+                    <p className="text-lg text-slate-400">No stock in any godown.</p>
                   ) : (
-                    <div className="space-y-6">
+                    <div className="space-y-4">
                       {batch.godowns.map((row) => {
                         const edit = editMap[row.inventory_id]
                         const isLoading = loadingMap[row.inventory_id]
                         return (
                           <div
                             key={row.inventory_id}
-                            className="border border-slate-200 bg-slate-50 p-6"
+                            className="border border-slate-100 bg-slate-50 rounded-xl p-5"
                           >
                             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                               <div>
-                                <p className="text-xs font-bold uppercase tracking-widest text-muted-light">
+                                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                                   Location
                                 </p>
-                                <p className="mt-2 text-xl font-bold text-slate-900">
+                                <p className="mt-2 text-xl font-bold text-slate-800">
                                   {row.godown_name}
                                 </p>
                                 <div className="mt-4 flex gap-8">
                                   <div>
-                                    <p className="text-xs text-muted-light">Boxes</p>
-                                    <p className="mt-1 text-2xl font-bold text-accent">
+                                    <p className="text-xs text-slate-400">Quantity ({unitPlural})</p>
+                                    <p className="mt-1 text-2xl font-bold text-indigo-600">
                                       {row.boxes}
                                     </p>
                                   </div>
                                   <div>
-                                    <p className="text-xs text-muted-light">Total Pieces</p>
-                                    <p className="mt-1 text-2xl font-bold text-accent">
+                                    <p className="text-xs text-slate-400">Total Pieces</p>
+                                    <p className="mt-1 text-2xl font-bold text-indigo-600">
                                       {row.total_pieces}
                                     </p>
                                   </div>
@@ -188,8 +191,8 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
                                 <div className="flex flex-col gap-3">
                                   <div className="flex gap-2">
                                     <div className="flex-1">
-                                      <label className="text-xs font-bold uppercase tracking-widest text-muted-light">
-                                        Boxes
+                                      <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                                        Quantity ({unitPlural})
                                       </label>
                                       <input
                                         type="number"
@@ -211,7 +214,7 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
                                     type="button"
                                     onClick={() => saveEdit(row.inventory_id)}
                                     disabled={isLoading}
-                                    className="bg-accent text-white border border-accent px-6 py-3 text-sm font-bold uppercase tracking-wide transition hover:bg-accent-dark disabled:opacity-50"
+                                    className="btn-primary py-2.5"
                                   >
                                     {isLoading ? 'Saving...' : 'Save Changes'}
                                   </button>
@@ -220,7 +223,7 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
                                 <button
                                   type="button"
                                   onClick={() => startEdit(row)}
-                                  className="text-sm font-bold uppercase text-accent tracking-wide transition hover:text-accent-dark"
+                                  className="text-sm font-semibold text-indigo-600 hover:text-indigo-700 transition"
                                 >
                                   Edit
                                 </button>

@@ -66,6 +66,25 @@ export async function getAllCategories() {
 }
 
 /**
+ * Create a new category
+ * Returns the created category or null on failure.
+ */
+export async function createCategory(name) {
+  try {
+    const { data, error } = await supabase
+      .from('categories')
+      .insert([{ name: name.trim() }])
+      .select('*')
+      .single()
+    if (error) throw error
+    return data
+  } catch (error) {
+    console.error('Error creating category:', error)
+    return null
+  }
+}
+
+/**
  * Create a new product
  * Returns the created product or null on failure.
  */
@@ -81,6 +100,24 @@ export async function createProduct({ product_name, brand, size, finish, unit, c
   } catch (error) {
     console.error('Error creating product:', error)
     return null
+  }
+}
+
+/**
+ * Update an existing product
+ * Returns true on success, false on failure.
+ */
+export async function updateProduct(productId, updates) {
+  try {
+    const { error } = await supabase
+      .from('products')
+      .update(updates)
+      .eq('id', productId)
+    if (error) throw error
+    return true
+  } catch (error) {
+    console.error('Error updating product:', error)
+    return false
   }
 }
 
@@ -199,6 +236,9 @@ export async function searchTiles(query) {
     const normalizedQuery = normalize(query)
     if (!normalizedQuery) return withFavoriteFlag(products?.slice(0, 20) || [])
 
+    // Create regex to match * and × as equivalent
+    const searchPattern = normalizedQuery.replace(/[*×]/g, '[*×]')
+
     const scored = (products || [])
       .map((product) => {
         const name = normalize(product.product_name)
@@ -207,10 +247,22 @@ export async function searchTiles(query) {
         const combined = `${brand} ${name} ${size}`
 
         let score = 0
-        if (combined.includes(normalizedQuery)) score += 4
-        if (name.includes(normalizedQuery)) score += 3
-        if (size.includes(normalizedQuery)) score += 2
-        if (brand.includes(normalizedQuery)) score += 2
+        
+        // Use regex for size matching to handle * and × equivalently
+        try {
+          const sizeRegex = new RegExp(searchPattern, 'i')
+          if (combined.match(sizeRegex)) score += 4
+          if (name.match(sizeRegex)) score += 3
+          if (size.match(sizeRegex)) score += 2
+          if (brand.match(sizeRegex)) score += 2
+        } catch {
+          // Fallback to simple string matching if regex fails
+          if (combined.includes(normalizedQuery)) score += 4
+          if (name.includes(normalizedQuery)) score += 3
+          if (size.includes(normalizedQuery)) score += 2
+          if (brand.includes(normalizedQuery)) score += 2
+        }
+        
         if (includesAsSubsequence(combined, normalizedQuery)) score += 1
 
         return { product, score }
@@ -403,10 +455,18 @@ export async function addInventoryEntry(data) {
 
     if (existing) {
       // Update existing
+      const newQuantity = existing.stock_quantity + stockQuantity
+      
+      // Prevent negative stock
+      if (newQuantity < 0) {
+        console.error('Stock cannot be negative:', { existing: existing.stock_quantity, change: stockQuantity })
+        return false
+      }
+      
       const { error: updateError } = await supabase
         .from('inventory')
         .update({
-          stock_quantity: existing.stock_quantity + stockQuantity,
+          stock_quantity: newQuantity,
           price,
           updated_at: new Date().toISOString(),
         })
@@ -417,10 +477,10 @@ export async function addInventoryEntry(data) {
       // Log the change
       await supabase.from('stock_logs').insert({
         inventory_id: existing.id,
-        change_type: 'ADD',
-        quantity: stockQuantity,
+        change_type: stockQuantity > 0 ? 'ADD' : 'REMOVE',
+        quantity: Math.abs(stockQuantity),
         previous_quantity: existing.stock_quantity,
-        new_quantity: existing.stock_quantity + stockQuantity,
+        new_quantity: newQuantity,
         created_at: new Date().toISOString(),
       })
     } else {

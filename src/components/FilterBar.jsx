@@ -42,22 +42,20 @@ function FilterDropdown({ label, options, selected, onChange }) {
   if (options.length === 0) return null
 
   return (
-    <div ref={ref} className="relative flex-1 min-w-[160px]">
+    <div ref={ref} className="relative flex-1 min-w-[130px] max-w-[180px] sm:max-w-none">
       {/* Trigger */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`w-full flex items-center justify-between gap-2 px-4 py-3 rounded-xl border text-sm font-medium transition-all duration-200 ${
+        className={`w-full flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 rounded-xl border text-xs sm:text-sm font-medium transition-all duration-200 ${
           isActive
-            ? 'bg-apple-blue text-white border-apple-blue shadow-apple-xs'
-            : 'bg-white text-apple-text-1 border-apple-gray-3 hover:border-apple-blue/50 hover:shadow-apple-xs'
+            ? 'bg-indigo-50 text-indigo-700 border-indigo-200 shadow-apple-xs'
+            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:shadow-apple-xs'
         }`}
       >
-        <span className="flex items-center gap-2 truncate">
+        <span className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
           {isActive && (
-            <span className={`flex-shrink-0 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center ${
-              isActive ? 'bg-white/25 text-white' : 'bg-apple-gray-3 text-apple-text-3'
-            }`}>
+            <span className="flex-shrink-0 w-4 h-4 sm:w-5 sm:h-5 rounded-md text-[9px] sm:text-[10px] font-bold flex items-center justify-center bg-indigo-500 text-white">
               {selected.length}
             </span>
           )}
@@ -74,14 +72,14 @@ function FilterDropdown({ label, options, selected, onChange }) {
 
       {/* Dropdown panel */}
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-2 z-30 bg-white rounded-2xl shadow-apple-modal border border-apple-gray-2 overflow-hidden">
+        <div className="absolute top-full left-0 mt-2 z-30 bg-white rounded-xl shadow-apple-lg border border-slate-100 overflow-hidden w-full min-w-[200px] sm:min-w-[240px] max-w-[280px]">
           {/* Search inside dropdown */}
           {options.length > 5 && (
-            <div className="p-2 border-b border-apple-gray-2">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-apple-gray">
+            <div className="p-2 border-b border-slate-100">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-100">
                 <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <circle cx="7" cy="7" r="5" stroke="#aeaeb2" strokeWidth="1.5"/>
-                  <path d="M11 11l3 3" stroke="#aeaeb2" strokeWidth="1.5" strokeLinecap="round"/>
+                  <circle cx="7" cy="7" r="5" stroke="#94a3b8" strokeWidth="1.5"/>
+                  <path d="M11 11l3 3" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round"/>
                 </svg>
                 <input
                   ref={inputRef}
@@ -89,10 +87,10 @@ function FilterDropdown({ label, options, selected, onChange }) {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={`Search ${label.toLowerCase()}…`}
-                  className="flex-1 bg-transparent text-sm text-apple-text-1 placeholder:text-apple-text-3 outline-none"
+                  className="flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 outline-none"
                 />
                 {search && (
-                  <button type="button" onClick={() => setSearch('')} className="text-apple-text-3 hover:text-apple-text-1">
+                  <button type="button" onClick={() => setSearch('')} className="text-slate-400 hover:text-slate-600">
                     <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                       <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
                     </svg>
@@ -103,13 +101,13 @@ function FilterDropdown({ label, options, selected, onChange }) {
           )}
 
           {/* Select all / clear row */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-apple-gray-2 bg-apple-gray/40">
-            <span className="text-xs text-apple-text-3">{filtered.length} option{filtered.length !== 1 ? 's' : ''}</span>
+          <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 bg-slate-50/50">
+            <span className="text-xs text-slate-400">{filtered.length} option{filtered.length !== 1 ? 's' : ''}</span>
             {selected.length > 0 && (
               <button
                 type="button"
                 onClick={() => onChange([])}
-                className="text-xs font-medium text-apple-red hover:opacity-70 transition-opacity"
+                className="text-xs font-semibold text-red-500 hover:opacity-70 transition-opacity"
               >
                 Clear
               </button>
@@ -119,7 +117,7 @@ function FilterDropdown({ label, options, selected, onChange }) {
           {/* Options list */}
           <div className="max-h-56 overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <p className="text-sm text-apple-text-3 text-center py-4">No results</p>
+              <p className="text-sm text-slate-400 text-center py-4">No results</p>
             ) : (
               filtered.map(({ value, count }) => {
                 const checked = selected.includes(value)
@@ -128,12 +126,12 @@ function FilterDropdown({ label, options, selected, onChange }) {
                     key={value}
                     type="button"
                     onClick={() => toggle(value)}
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-apple-gray ${
-                      checked ? 'bg-apple-blue/5' : ''
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-slate-50 ${
+                      checked ? 'bg-indigo-50/50' : ''
                     }`}
                   >
-                    <span className={`w-5 h-5 rounded-md flex-shrink-0 flex items-center justify-center border-[1.5px] transition-all ${
-                      checked ? 'bg-apple-blue border-apple-blue' : 'border-apple-gray-3 bg-white'
+                    <span className={`w-4.5 h-4.5 rounded-md flex-shrink-0 flex items-center justify-center border-[1.5px] transition-all ${
+                      checked ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300 bg-white'
                     }`}>
                       {checked && (
                         <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
@@ -141,10 +139,10 @@ function FilterDropdown({ label, options, selected, onChange }) {
                         </svg>
                       )}
                     </span>
-                    <span className={`flex-1 text-sm ${checked ? 'text-apple-text-1 font-medium' : 'text-apple-text-2'}`}>
+                    <span className={`flex-1 text-sm ${checked ? 'text-slate-900 font-medium' : 'text-slate-600'}`}>
                       {value}
                     </span>
-                    <span className="text-xs text-apple-text-3 tabular-nums">{count}</span>
+                    <span className="text-xs text-slate-400 tabular-nums">{count}</span>
                   </button>
                 )
               })
@@ -189,7 +187,7 @@ function FilterBar({ allTiles, filters, onChange, resultCount, totalCount }) {
   return (
     <div className="space-y-3">
       {/* ── Filter row ── */}
-      <div className="flex items-stretch gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         <FilterDropdown
           label="Brand"
           options={options.brand}
@@ -220,35 +218,36 @@ function FilterBar({ allTiles, filters, onChange, resultCount, totalCount }) {
           <button
             type="button"
             onClick={() => onChange({ ...filters, favoritesOnly: !filters.favoritesOnly })}
-            className={`flex-shrink-0 flex items-center gap-2 px-4 py-3 rounded-xl border text-sm font-medium transition-all duration-200 ${
+            className={`flex items-center gap-1.5 px-3 sm:px-4 py-2.5 rounded-xl border text-xs sm:text-sm font-medium transition-all duration-200 whitespace-nowrap ${
               filters.favoritesOnly
-                ? 'bg-apple-red text-white border-apple-red shadow-apple-xs'
-                : 'bg-white text-apple-text-2 border-apple-gray-3 hover:border-apple-red/50 hover:text-apple-red hover:shadow-apple-xs'
+                ? 'bg-red-50 text-red-600 border-red-200 shadow-apple-xs'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-red-200 hover:text-red-500 hover:shadow-apple-xs'
             }`}
           >
-            <svg width="14" height="14" viewBox="0 0 15 15"
-              fill={filters.favoritesOnly ? 'white' : 'none'}
-              stroke={filters.favoritesOnly ? 'white' : 'currentColor'}
+            <svg width="12" height="12" viewBox="0 0 15 15"
+              fill={filters.favoritesOnly ? 'currentColor' : 'none'}
+              stroke="currentColor"
               strokeWidth="1.4"
             >
               <path d="M7.5 13.5S1 9.8 1 5.25a3.75 3.75 0 0 1 6.5-2.5 3.75 3.75 0 0 1 6.5 2.5C14 9.8 7.5 13.5 7.5 13.5z"/>
             </svg>
-            Favourites
+            <span className="hidden xs:inline">Favourites</span>
+            <span className="xs:hidden">♥</span>
           </button>
         )}
 
         {/* Result count + clear */}
-        <div className="flex items-center gap-3 ml-auto flex-shrink-0">
-          <span className="text-sm text-apple-text-3">
-            {resultCount === totalCount ? `${totalCount} tiles` : `${resultCount} of ${totalCount}`}
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto sm:ml-auto justify-end">
+          <span className="text-xs sm:text-sm text-slate-400 whitespace-nowrap tabular-nums">
+            {resultCount === totalCount ? `${totalCount}` : `${resultCount}/${totalCount}`}
           </span>
           {hasAny && (
             <button
               type="button"
               onClick={clearAll}
-              className="text-sm font-medium text-apple-red hover:opacity-70 transition-opacity"
+              className="text-xs sm:text-sm font-semibold text-red-500 hover:opacity-70 transition-opacity whitespace-nowrap"
             >
-              Clear all
+              Clear
             </button>
           )}
         </div>
@@ -261,14 +260,14 @@ function FilterBar({ allTiles, filters, onChange, resultCount, totalCount }) {
             filters[key].map((val) => (
               <span
                 key={`${key}-${val}`}
-                className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1 rounded-full text-xs font-medium bg-apple-blue/10 text-apple-blue border border-apple-blue/20"
+                className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1 rounded-lg text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100"
               >
-                <span className="text-[10px] text-apple-blue/60 uppercase tracking-wider">{key}</span>
+                <span className="text-[10px] text-indigo-400 uppercase tracking-wider">{key}</span>
                 {val}
                 <button
                   type="button"
                   onClick={() => onChange({ ...filters, [key]: filters[key].filter((v) => v !== val) })}
-                  className="w-4 h-4 rounded-full flex items-center justify-center hover:bg-apple-blue/20 transition-colors"
+                  className="w-4 h-4 rounded-md flex items-center justify-center hover:bg-indigo-100 transition-colors"
                   aria-label={`Remove ${val}`}
                 >
                   <svg width="7" height="7" viewBox="0 0 8 8" fill="none">
@@ -279,12 +278,12 @@ function FilterBar({ allTiles, filters, onChange, resultCount, totalCount }) {
             ))
           )}
           {filters.favoritesOnly && (
-            <span className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1 rounded-full text-xs font-medium bg-apple-red/10 text-apple-red border border-apple-red/20">
+            <span className="inline-flex items-center gap-1.5 pl-3 pr-2 py-1 rounded-lg text-xs font-medium bg-red-50 text-red-600 border border-red-100">
               ❤ Favourites only
               <button
                 type="button"
                 onClick={() => onChange({ ...filters, favoritesOnly: false })}
-                className="w-4 h-4 rounded-full flex items-center justify-center hover:bg-apple-red/20 transition-colors"
+                className="w-4 h-4 rounded-md flex items-center justify-center hover:bg-red-100 transition-colors"
               >
                 <svg width="7" height="7" viewBox="0 0 8 8" fill="none">
                   <path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>

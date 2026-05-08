@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import SearchBar from './SearchBar'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
-import { searchTiles, getLatestTiles, getTileInventory, getAllCategories, createProduct, getProductFieldOptions, getAllGodowns, addInventoryEntry } from '../services/inventoryService'
+import { searchTiles, getLatestTiles, getTileInventory, getAllCategories, createCategory, createProduct, getProductFieldOptions, getAllGodowns, addInventoryEntry } from '../services/inventoryService'
 
 const EMPTY_FORM = {
   product_name: '', brand: '', size: '', finish: '', unit: 'box', category_id: '',
@@ -13,7 +13,7 @@ const EMPTY_FORM = {
  * Combobox: shows a text input + dropdown of existing suggestions.
  * The user can pick a suggestion OR type their own value.
  */
-function ComboField({ label, value, onChange, suggestions = [], placeholder = '' }) {
+function ComboField({ label, value, onChange, suggestions = [], placeholder = '', transformInput }) {
   const [open, setOpen]       = useState(false)
   const [query, setQuery]     = useState(value)
   const containerRef          = useRef(null)
@@ -35,32 +35,35 @@ function ComboField({ label, value, onChange, suggestions = [], placeholder = ''
   )
 
   const select = (val) => {
-    setQuery(val)
-    onChange(val)
+    const transformed = transformInput ? transformInput(val) : val
+    setQuery(transformed)
+    onChange(transformed)
     setOpen(false)
   }
 
   const handleInput = (e) => {
-    setQuery(e.target.value)
-    onChange(e.target.value)
+    const inputValue = e.target.value
+    const transformed = transformInput ? transformInput(inputValue) : inputValue
+    setQuery(transformed)
+    onChange(transformed)
     setOpen(true)
   }
 
   return (
     <div ref={containerRef} className="relative">
       <label className="label">{label}</label>
-      <div className={`flex items-center gap-2 input-modern pr-2 ${ open ? 'ring-2 ring-apple-blue/30 border-apple-blue' : '' }`}>
+      <div className={`flex items-center gap-2 input-modern pr-2 ${ open ? 'ring-2 ring-indigo-500/20 border-indigo-400' : '' }`}>
         <input
           type="text"
           value={query}
           onChange={handleInput}
           onFocus={() => setOpen(true)}
           placeholder={placeholder}
-          className="flex-1 bg-transparent outline-none text-sm text-apple-text-1 placeholder:text-apple-text-3"
+          className="flex-1 bg-transparent outline-none text-sm text-slate-900 placeholder:text-slate-400"
         />
         {query && (
           <button type="button" onClick={() => select('')}
-            className="text-apple-text-3 hover:text-apple-text-1 flex-shrink-0"
+            className="text-slate-400 hover:text-slate-600 flex-shrink-0"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
               <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
@@ -70,12 +73,12 @@ function ComboField({ label, value, onChange, suggestions = [], placeholder = ''
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
           className={`flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
         >
-          <path d="M2 3.5l3 3 3-3" stroke="#aeaeb2" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+          <path d="M2 3.5l3 3 3-3" stroke="#94a3b8" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
 
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl shadow-apple border border-apple-gray-2 overflow-hidden">
+        <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl shadow-apple-lg border border-slate-100 overflow-hidden">
           {/* Existing options */}
           {filtered.length > 0 && (
             <div className="max-h-40 overflow-y-auto py-1">
@@ -84,8 +87,8 @@ function ComboField({ label, value, onChange, suggestions = [], placeholder = ''
                   key={s}
                   type="button"
                   onMouseDown={(e) => { e.preventDefault(); select(s) }}
-                  className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-apple-gray ${
-                    s === value ? 'text-apple-blue font-medium bg-apple-blue/5' : 'text-apple-text-1'
+                  className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-slate-50 ${
+                    s === value ? 'text-indigo-600 font-medium bg-indigo-50' : 'text-slate-700'
                   }`}
                 >
                   {s}
@@ -96,11 +99,11 @@ function ComboField({ label, value, onChange, suggestions = [], placeholder = ''
 
           {/* "Add new" row – shown when user typed something not in list */}
           {query.trim() && !suggestions.some((s) => s.toLowerCase() === query.trim().toLowerCase()) && (
-            <div className="border-t border-apple-gray-2">
+            <div className="border-t border-slate-100">
               <button
                 type="button"
                 onMouseDown={(e) => { e.preventDefault(); select(query.trim()) }}
-                className="w-full text-left px-4 py-2.5 text-sm text-apple-blue font-medium hover:bg-apple-blue/5 transition-colors flex items-center gap-2"
+                className="w-full text-left px-4 py-2.5 text-sm text-indigo-600 font-medium hover:bg-indigo-50 transition-colors flex items-center gap-2"
               >
                 <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
                   <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
@@ -111,7 +114,136 @@ function ComboField({ label, value, onChange, suggestions = [], placeholder = ''
           )}
 
           {filtered.length === 0 && !query.trim() && (
-            <p className="text-xs text-apple-text-3 px-4 py-3">No existing values — type to add new</p>
+            <p className="text-xs text-slate-400 px-4 py-3">No existing values — type to add new</p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * CategoryComboField: Similar to ComboField but creates categories in DB when new ones are added
+ */
+function CategoryComboField({ label, value, onChange, categories = [] }) {
+  const [open, setOpen]       = useState(false)
+  const [query, setQuery]     = useState('')
+  const [creating, setCreating] = useState(false)
+  const containerRef          = useRef(null)
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filtered = categories.filter((c) =>
+    c.name.toLowerCase().includes(query.toLowerCase())
+  )
+
+  const select = (categoryId) => {
+    onChange(categoryId)
+    setQuery('')
+    setOpen(false)
+  }
+
+  const handleCreateNew = async () => {
+    const trimmed = query.trim()
+    if (!trimmed || creating) return
+
+    setCreating(true)
+    const newCategory = await createCategory(trimmed)
+    setCreating(false)
+
+    if (newCategory) {
+      // Notify parent to refresh categories list
+      onChange(newCategory.id, true) // Pass true to indicate refresh needed
+      setQuery('')
+      setOpen(false)
+    }
+  }
+
+  const selectedCategory = categories.find((c) => c.id === value)
+  const displayText = selectedCategory ? selectedCategory.name : 'Select or create new'
+
+  return (
+    <div ref={containerRef} className="relative">
+      <label className="label">{label}</label>
+      <div className={`flex items-center gap-2 input-modern pr-2 cursor-pointer ${ open ? 'ring-2 ring-indigo-500/20 border-indigo-400' : '' }`}
+        onClick={() => setOpen(!open)}
+      >
+        <span className="flex-1 text-sm text-slate-900">
+          {selectedCategory ? selectedCategory.name : <span className="text-slate-400">Select or create new</span>}
+        </span>
+        {value && (
+          <button type="button" onClick={(e) => { e.stopPropagation(); select('') }}
+            className="text-slate-400 hover:text-slate-600 flex-shrink-0"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+            </svg>
+          </button>
+        )}
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
+          className={`flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+        >
+          <path d="M2 3.5l3 3 3-3" stroke="#94a3b8" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </div>
+
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl shadow-apple-lg border border-slate-100 overflow-hidden">
+          {/* Search input */}
+          <div className="p-2 border-b border-slate-100">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search or type new category..."
+              className="w-full px-3 py-2 text-sm bg-slate-50 rounded-lg border border-slate-100 outline-none text-slate-900 placeholder:text-slate-400 focus:border-indigo-300"
+              autoFocus
+            />
+          </div>
+
+          {/* Existing categories */}
+          {filtered.length > 0 && (
+            <div className="max-h-40 overflow-y-auto py-1">
+              {filtered.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); select(c.id) }}
+                  className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-slate-50 ${
+                    c.id === value ? 'text-indigo-600 font-medium bg-indigo-50' : 'text-slate-700'
+                  }`}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Create new category */}
+          {query.trim() && !categories.some((c) => c.name.toLowerCase() === query.trim().toLowerCase()) && (
+            <div className="border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleCreateNew}
+                disabled={creating}
+                className="w-full text-left px-4 py-2.5 text-sm text-indigo-600 font-medium hover:bg-indigo-50 transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                  <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+                {creating ? 'Creating...' : `Create "${query.trim()}"`}
+              </button>
+            </div>
+          )}
+
+          {filtered.length === 0 && !query.trim() && (
+            <p className="text-xs text-slate-400 px-4 py-3">Type to search or create new category</p>
           )}
         </div>
       )}
@@ -127,13 +259,23 @@ function AddProductModal({ onClose, onCreated }) {
   const [saving, setSaving]   = useState(false)
   const [error, setError]     = useState('')
 
+  const loadCategories = async () => {
+    const cats = await getAllCategories()
+    setCategories(cats)
+  }
+
   useEffect(() => {
-    getAllCategories().then(setCategories)
+    loadCategories()
     getProductFieldOptions().then(setOptions)
     getAllGodowns().then(setGodowns)
   }, [])
 
-  const set = (field) => (val) => setForm((f) => ({ ...f, [field]: val }))
+  const set = (field) => (val, shouldRefresh) => {
+    setForm((f) => ({ ...f, [field]: val }))
+    if (shouldRefresh && field === 'category_id') {
+      loadCategories() // Refresh categories when a new one is created
+    }
+  }
   const setSelect = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
   const setInput  = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
 
@@ -179,19 +321,19 @@ function AddProductModal({ onClose, onCreated }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" aria-modal="true" role="dialog">
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-3xl shadow-apple-modal w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-lg max-h-[90vh] overflow-y-auto">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-apple-gray-2 sticky top-0 bg-white rounded-t-3xl z-10">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl z-10">
           <div>
-            <p className="caption">admin</p>
-            <h2 className="text-lg font-bold text-apple-text-1">Add New Product</h2>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500">admin</p>
+            <h2 className="text-lg font-bold text-slate-900">Add New Product</h2>
           </div>
           <button type="button" onClick={onClose}
-            className="w-8 h-8 rounded-full bg-apple-gray flex items-center justify-center hover:bg-apple-gray-2 transition-colors"
+            className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 1l8 8M9 1L1 9" stroke="#6e6e73" strokeWidth="1.6" strokeLinecap="round"/></svg>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 1l8 8M9 1L1 9" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round"/></svg>
           </button>
         </div>
 
@@ -200,7 +342,7 @@ function AddProductModal({ onClose, onCreated }) {
 
           {/* Product name */}
           <div>
-            <label className="label">Product Name <span className="text-apple-red">*</span></label>
+            <label className="label">Product Name <span className="text-red-500">*</span></label>
             <input
               className="input-modern"
               value={form.product_name}
@@ -219,15 +361,12 @@ function AddProductModal({ onClose, onCreated }) {
               suggestions={options.brands}
               placeholder="Select or type new"
             />
-            <div>
-              <label className="label">Category</label>
-              <select className="input-modern" value={form.category_id} onChange={setSelect('category_id')}>
-                <option value="">— None —</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
+            <CategoryComboField
+              label="Category"
+              value={form.category_id}
+              onChange={set('category_id')}
+              categories={categories}
+            />
           </div>
 
           {/* Size + Finish */}
@@ -237,7 +376,8 @@ function AddProductModal({ onClose, onCreated }) {
               value={form.size}
               onChange={set('size')}
               suggestions={options.sizes}
-              placeholder="Select or type new"
+              placeholder="e.g. 12*12 or 24*48"
+              transformInput={(val) => val.replace(/\*/g, '×')}
             />
             <ComboField
               label="Finish"
@@ -249,21 +389,19 @@ function AddProductModal({ onClose, onCreated }) {
           </div>
 
           {/* Unit */}
-          <div>
-            <label className="label">Unit</label>
-            <select className="input-modern" value={form.unit} onChange={setSelect('unit')}>
-              <option value="box">Box</option>
-              <option value="piece">Piece</option>
-              <option value="sqft">Sq ft</option>
-              <option value="sqm">Sq m</option>
-            </select>
-          </div>
+          <ComboField
+            label="Unit"
+            value={form.unit}
+            onChange={set('unit')}
+            suggestions={options.units.length > 0 ? options.units : ['box', 'piece', 'sqft', 'sqm']}
+            placeholder="Select or type new"
+          />
 
           {/* ── Initial Stock ── */}
-          <div className="border-t border-apple-gray-2 pt-4 space-y-4">
+          <div className="border-t border-slate-100 pt-4 space-y-4">
             <div>
-              <p className="text-sm font-semibold text-apple-text-1">Initial Stock <span className="text-xs font-normal text-apple-text-3 ml-1">(optional)</span></p>
-              <p className="text-xs text-apple-text-3 mt-0.5">Fill in to record opening stock right away.</p>
+              <p className="text-sm font-bold text-slate-800">Initial Stock <span className="text-xs font-normal text-slate-400 ml-1">(optional)</span></p>
+              <p className="text-xs text-slate-400 mt-0.5">Fill in to record opening stock right away.</p>
             </div>
 
             {/* Godown + Batch */}
@@ -290,13 +428,13 @@ function AddProductModal({ onClose, onCreated }) {
                 <input className="input-modern" type="number" min="1" value={form.qty} onChange={setInput('qty')} placeholder="0" />
               </div>
               <div>
-                <label className="label">Price per unit <span className="text-apple-text-3 font-normal">(optional)</span></label>
+                <label className="label">Price per unit <span className="text-slate-400 font-normal">(optional)</span></label>
                 <input className="input-modern" type="number" min="0" step="0.01" value={form.price} onChange={setInput('price')} placeholder="0.00" />
               </div>
             </div>
           </div>
 
-          {error && <p className="text-xs font-medium text-apple-red">{error}</p>}
+          {error && <p className="text-xs font-medium text-red-500">{error}</p>}
 
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
@@ -352,9 +490,9 @@ function UpdateInventoryPage({ onQuickAdd, onProductCreated }) {
 
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="caption mb-1.5">Admin</p>
-          <h1 className="text-[28px] font-bold tracking-tight text-apple-text-1">Update Inventory</h1>
-          <p className="text-sm text-apple-text-2 mt-1">Select a tile to add or update its stock.</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500 mb-1.5">Admin</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Update Inventory</h1>
+          <p className="text-sm text-slate-500 mt-1">Select a tile to add or update its stock.</p>
         </div>
         <button
           type="button"
@@ -371,13 +509,16 @@ function UpdateInventoryPage({ onQuickAdd, onProductCreated }) {
       <SearchBar query={query} onChange={setQuery} />
 
       {loading ? (
-        <div className="flex items-center justify-center py-24">
-          <div className="w-8 h-8 border-[2.5px] border-apple-blue border-t-transparent rounded-full animate-spin" />
+        <div className="flex items-center justify-center py-32">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-[2.5px] border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm text-slate-400">Loading...</p>
+          </div>
         </div>
       ) : tiles.length === 0 ? (
         <div className="card py-16 text-center">
-          <p className="text-sm font-medium text-apple-text-2">No tiles found</p>
-          <p className="text-xs text-apple-text-3 mt-1">Try adjusting your search</p>
+          <p className="text-sm font-semibold text-slate-600">No tiles found</p>
+          <p className="text-xs text-slate-400 mt-1">Try adjusting your search</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -387,33 +528,33 @@ function UpdateInventoryPage({ onQuickAdd, onProductCreated }) {
               type="button"
               onClick={() => handleTileSelect(tile)}
               disabled={loadingId === tile.id}
-              className="w-full text-left card px-5 py-4 flex items-center gap-4 hover:shadow-apple-sm transition-all duration-200 disabled:opacity-60"
+              className="w-full text-left card px-5 py-4 flex items-center gap-4 hover:shadow-apple-sm hover:border-slate-200 transition-all duration-200 disabled:opacity-60"
             >
-              <div className="w-10 h-10 rounded-xl bg-apple-gray flex-shrink-0 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-100 flex-shrink-0 flex items-center justify-center">
                 {loadingId === tile.id ? (
-                  <div className="w-4 h-4 border-[2px] border-apple-blue border-t-transparent rounded-full animate-spin" />
+                  <div className="w-4 h-4 border-[2px] border-indigo-500 border-t-transparent rounded-full animate-spin" />
                 ) : (
-                  <span className="text-xs font-bold text-apple-text-3 uppercase">
+                  <span className="text-xs font-bold text-slate-400 uppercase">
                     {(tile.brand || tile.product_name || '?')[0]}
                   </span>
                 )}
               </div>
 
               <div className="flex-1 min-w-0">
-                {tile.brand && <p className="caption leading-none mb-1">{tile.brand}</p>}
-                <p className="text-sm font-semibold text-apple-text-1 truncate">
+                {tile.brand && <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 leading-none mb-1">{tile.brand}</p>}
+                <p className="text-sm font-semibold text-slate-800 truncate">
                   {tile.product_name || tile.name}
                 </p>
               </div>
 
               {tile.size && (
-                <span className="hidden sm:inline-flex items-center px-3 py-1 rounded-full bg-apple-gray text-xs font-medium text-apple-text-2 flex-shrink-0">
+                <span className="hidden sm:inline-flex items-center px-3 py-1 rounded-lg bg-slate-100 text-xs font-semibold text-slate-500 flex-shrink-0">
                   {tile.size}
                 </span>
               )}
 
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="flex-shrink-0" aria-hidden="true">
-                <path d="M4.5 2l4 4-4 4" stroke="#aeaeb2" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M4.5 2l4 4-4 4" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
           ))}
