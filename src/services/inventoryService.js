@@ -27,7 +27,7 @@ export async function getProductFieldOptions() {
   try {
     const { data, error } = await supabase
       .from('products')
-      .select('brand, size, finish, unit')
+      .select('brand, size, finish, grade, unit, package_spec')
     if (error) throw error
     const unique = (key) => [
       ...new Set(
@@ -40,11 +40,13 @@ export async function getProductFieldOptions() {
       brands:   unique('brand'),
       sizes:    unique('size'),
       finishes: unique('finish'),
+      grades:   unique('grade'),
       units:    unique('unit'),
+      packageSpecs: unique('package_spec'),
     }
   } catch (error) {
     console.error('Error fetching product field options:', error)
-    return { brands: [], sizes: [], finishes: [], units: [] }
+    return { brands: [], sizes: [], finishes: [], grades: [], units: [], packageSpecs: [] }
   }
 }
 
@@ -88,11 +90,25 @@ export async function createCategory(name) {
  * Create a new product
  * Returns the created product or null on failure.
  */
-export async function createProduct({ product_name, brand, size, finish, unit, category_id }) {
+export async function createProduct({ product_name, brand, size, finish, grade, unit, category_id, package_spec, pieces_per_box }) {
   try {
+    const normalizedPiecesPerBox = Number(pieces_per_box)
+
     const { data, error } = await supabase
       .from('products')
-      .insert([{ product_name, brand, size, finish, unit, category_id }])
+      .insert([{
+        product_name,
+        brand,
+        size,
+        finish,
+        grade,
+        unit,
+        category_id,
+        package_spec,
+        pieces_per_box: Number.isFinite(normalizedPiecesPerBox) && normalizedPiecesPerBox > 0
+          ? Math.round(normalizedPiecesPerBox)
+          : null,
+      }])
       .select('*')
       .single()
     if (error) throw error
@@ -117,7 +133,79 @@ export async function updateProduct(productId, updates) {
     return true
   } catch (error) {
     console.error('Error updating product:', error)
+    console.error('Update data:', updates)
+    console.error('Product ID:', productId)
     return false
+  }
+}
+
+/**
+ * Delete a product by id
+ * Returns an object with success state and blocking reason when applicable.
+ */
+export async function deleteProduct(productId) {
+  try {
+    // Fetch inventory IDs and transaction count for this product
+    const [inventoryResult, transactionResult] = await Promise.all([
+      supabase
+        .from('inventory')
+        .select('id')
+        .eq('product_id', productId),
+      supabase
+        .from('transactions')
+        .select('id', { count: 'exact', head: true })
+        .eq('product_id', productId),
+    ])
+
+    if (inventoryResult.error) throw inventoryResult.error
+    if (transactionResult.error) throw transactionResult.error
+
+    const inventoryIds = (inventoryResult.data || []).map((row) => row.id)
+    const transactionCount = transactionResult.count || 0
+
+    // Detach transactions from the product (keep transactions but set product_id to null)
+    if (transactionCount > 0) {
+      const { error: detachError } = await supabase
+        .from('transactions')
+        .update({ product_id: null })
+        .eq('product_id', productId)
+
+      if (detachError) throw detachError
+    }
+
+    // Delete related stock logs and inventory
+    if (inventoryIds.length > 0) {
+      const { error: stockLogsError } = await supabase
+        .from('stock_logs')
+        .delete()
+        .in('inventory_id', inventoryIds)
+
+      if (stockLogsError) throw stockLogsError
+
+      const { error: inventoryDeleteError } = await supabase
+        .from('inventory')
+        .delete()
+        .eq('product_id', productId)
+
+      if (inventoryDeleteError) throw inventoryDeleteError
+    }
+
+    // Finally, delete the product
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .eq('id', productId)
+
+    if (error) throw error
+
+    return { ok: true }
+  } catch (error) {
+    console.error('Error deleting product:', error)
+    return {
+      ok: false,
+      code: error.code || 'DELETE_FAILED',
+      message: error.message || 'Failed to delete product. Please try again.',
+    }
   }
 }
 
@@ -316,7 +404,28 @@ export async function getAllTiles() {
       .order('created_at', { ascending: false })
 
     if (error) throw error
-    return withFavoriteFlag(products || [])
+
+    // Fetch all inventory to compute total stock per product
+    const { data: inventory, error: invError } = await supabase
+      .from('inventory')
+      .select('product_id, stock_quantity')
+
+    if (invError) throw invError
+
+    // Aggregate stock by product_id
+    const stockMap = {}
+    ;(inventory || []).forEach(entry => {
+      if (!stockMap[entry.product_id]) stockMap[entry.product_id] = 0
+      stockMap[entry.product_id] += entry.stock_quantity
+    })
+
+    // Add totalBoxes to each product
+    const productsWithStock = (products || []).map(p => ({
+      ...p,
+      totalBoxes: stockMap[p.id] || 0
+    }))
+
+    return withFavoriteFlag(productsWithStock)
   } catch (error) {
     console.error('Error fetching all tiles:', error)
     return []
@@ -370,6 +479,7 @@ export async function getTileInventory(productId) {
         product_id,
         godown_id,
         batch_number,
+        location_in_godown,
         stock_quantity,
         price,
         godowns(id, name),
@@ -380,6 +490,11 @@ export async function getTileInventory(productId) {
       .eq('product_id', productId)
 
     if (inventoryError) throw inventoryError
+
+    const piecesPerBox = Number(product.pieces_per_box)
+    const resolvedPiecesPerBox = Number.isFinite(piecesPerBox) && piecesPerBox > 0
+      ? Math.round(piecesPerBox)
+      : null
 
     // Group by batch_number
     const batchMap = {}
@@ -395,9 +510,13 @@ export async function getTileInventory(productId) {
         inventory_id: entry.id,
         godown_id: entry.godown_id,
         godown_name: entry.godowns?.name || 'Unknown Godown',
+        location_in_godown: entry.location_in_godown || null,
+        batch_code: entry.batch_number,
         boxes: entry.stock_quantity,
-        pieces_per_box: 1, // Default, you may want to add this to DB
-        total_pieces: entry.stock_quantity,
+        pieces_per_box: resolvedPiecesPerBox,
+        total_pieces: resolvedPiecesPerBox
+          ? entry.stock_quantity * resolvedPiecesPerBox
+          : null,
       })
       batchMap[entry.batch_number].total_boxes += entry.stock_quantity
     })
@@ -433,11 +552,20 @@ export async function addInventoryEntry(data) {
       tile_id: productId,
       batch_code: batchNumber,
       godown_id: godownId,
+      location_in_godown: locationInGodown = null,
       boxes: stockQuantity,
       price = 0,
     } = data
 
-    if (!productId || !batchNumber || !godownId || !stockQuantity) {
+    console.log('addInventoryEntry called with:', {
+      productId,
+      batchNumber,
+      godownId,
+      stockQuantity,
+      locationInGodown
+    })
+
+    if (!productId || !batchNumber || !godownId || stockQuantity === null || stockQuantity === undefined) {
       console.error('addInventoryEntry: missing required fields', data)
       return false
     }
@@ -451,11 +579,19 @@ export async function addInventoryEntry(data) {
       .eq('batch_number', batchNumber)
       .maybeSingle()
 
+    console.log('Existing inventory entry:', existing)
+
     if (checkError) throw checkError
 
     if (existing) {
       // Update existing
       const newQuantity = existing.stock_quantity + stockQuantity
+      
+      console.log('Updating stock:', {
+        existing: existing.stock_quantity,
+        change: stockQuantity,
+        new: newQuantity
+      })
       
       // Prevent negative stock
       if (newQuantity < 0) {
@@ -463,13 +599,18 @@ export async function addInventoryEntry(data) {
         return false
       }
       
+      const updateData = {
+        stock_quantity: newQuantity,
+        price,
+        updated_at: new Date().toISOString(),
+      }
+      if (locationInGodown !== undefined) {
+        updateData.location_in_godown = locationInGodown
+      }
+      
       const { error: updateError } = await supabase
         .from('inventory')
-        .update({
-          stock_quantity: newQuantity,
-          price,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', existing.id)
 
       if (updateError) throw updateError
@@ -491,6 +632,7 @@ export async function addInventoryEntry(data) {
           product_id: productId,
           godown_id: godownId,
           batch_number: batchNumber,
+          location_in_godown: locationInGodown,
           stock_quantity: stockQuantity,
           price,
           created_at: new Date().toISOString(),
@@ -524,7 +666,7 @@ export async function addInventoryEntry(data) {
  */
 export async function updateInventoryEntry(data) {
   try {
-    const { inventory_id: inventoryId, boxes: newQuantity } = data
+    const { inventory_id: inventoryId, boxes: newQuantity, location_in_godown: locationInGodown } = data
 
     // Get current quantity
     const { data: current, error: fetchError } = await supabase
@@ -536,12 +678,17 @@ export async function updateInventoryEntry(data) {
     if (fetchError) throw fetchError
 
     // Update quantity
+    const updateData = {
+      stock_quantity: newQuantity,
+      updated_at: new Date().toISOString(),
+    }
+    if (locationInGodown !== undefined) {
+      updateData.location_in_godown = locationInGodown
+    }
+    
     const { error: updateError } = await supabase
       .from('inventory')
-      .update({
-        stock_quantity: newQuantity,
-        updated_at: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq('id', inventoryId)
 
     if (updateError) throw updateError
@@ -598,6 +745,84 @@ export async function getAllGodowns() {
     return godowns || []
   } catch (error) {
     console.error('Error fetching godowns:', error)
+    return []
+  }
+}
+
+/**
+ * Update saved locations for a godown.
+ */
+export async function updateGodownLocations(godownId, locations) {
+  try {
+    const normalizedLocations = [...new Set((locations || [])
+      .map((location) => String(location).trim())
+      .filter(Boolean))]
+
+    const { data, error } = await supabase
+      .from('godowns')
+      .update({ locations: normalizedLocations })
+      .eq('id', godownId)
+      .select('*')
+      .single()
+
+    if (error) throw error
+    return { ok: true, data }
+  } catch (error) {
+    console.error('Error updating godown locations:', error)
+    return { ok: false, error }
+  }
+}
+
+/**
+ * Create a new transaction (buy/sell)
+ * Returns true on success, false on failure
+ */
+export async function createTransaction(data) {
+  try {
+    const { error } = await supabase
+      .from('transactions')
+      .insert([data])
+
+    if (error) throw error
+    return true
+  } catch (error) {
+    console.error('Error creating transaction:', error)
+    return false
+  }
+}
+
+/**
+ * Get all transactions with product details
+ */
+export async function getAllTransactions() {
+  try {
+    const { data, error } = await supabase
+      .from('transactions')
+      .select(`
+        *,
+        products:product_id (
+          product_name,
+          unit,
+          package_spec
+        ),
+        godowns:godown_id (
+          name
+        )
+      `)
+      .order('created_at', { ascending: false })
+
+    if (error) throw error
+
+    // Flatten the nested structure
+    return (data || []).map(txn => ({
+      ...txn,
+      product_name: txn.products?.product_name || 'Unknown Product',
+      unit: txn.products?.unit || 'box',
+      package_spec: txn.products?.package_spec || null,
+      godown_name: txn.godowns?.name || null,
+    }))
+  } catch (error) {
+    console.error('Error fetching transactions:', error)
     return []
   }
 }

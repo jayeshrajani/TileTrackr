@@ -1,12 +1,24 @@
 import { useState, useEffect, useRef } from 'react'
 import SearchBar from './SearchBar'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
-import { searchTiles, getLatestTiles, getTileInventory, getAllCategories, createCategory, createProduct, getProductFieldOptions, getAllGodowns, addInventoryEntry } from '../services/inventoryService'
+import { searchTiles, getLatestTiles, getTileInventory, getAllCategories, createCategory, createProduct, getProductFieldOptions, getAllGodowns, addInventoryEntry, getAllTiles, updateProduct, deleteProduct } from '../services/inventoryService'
 
 const EMPTY_FORM = {
-  product_name: '', brand: '', size: '', finish: '', unit: 'box', category_id: '',
+  product_name: '', brand: '', size: '', finish: '', grade: '', unit: 'box', category_id: '',
+  package_spec: '',
   // Initial stock (all optional)
-  godown_id: '', batch_code: '', qty: '', price: '',
+  godown_id: '', batch_code: '', location_in_godown: '', qty: '', price: '',
+}
+
+const parsePackageCount = (value) => {
+  if (value == null || value === '') return null
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? Math.round(value) : null
+  }
+  const match = String(value).match(/\d+/)
+  if (!match) return null
+  const parsed = Number(match[0])
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null
 }
 
 /**
@@ -50,7 +62,7 @@ function ComboField({ label, value, onChange, suggestions = [], placeholder = ''
   }
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className={`relative ${open ? 'z-40' : 'z-0'}`}>
       <label className="label">{label}</label>
       <div className={`flex items-center gap-2 input-modern pr-2 ${ open ? 'ring-2 ring-indigo-500/20 border-indigo-400' : '' }`}>
         <input
@@ -61,24 +73,34 @@ function ComboField({ label, value, onChange, suggestions = [], placeholder = ''
           placeholder={placeholder}
           className="flex-1 bg-transparent outline-none text-sm text-slate-900 placeholder:text-slate-400"
         />
-        {query && (
-          <button type="button" onClick={() => select('')}
-            className="text-slate-400 hover:text-slate-600 flex-shrink-0"
+        <div className="ml-2 flex items-center gap-1.5 flex-shrink-0">
+          {query && (
+            <button type="button" onClick={() => select('')}
+              className="text-slate-400 hover:text-slate-600"
+              aria-label={`Clear ${label}`}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+              </svg>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setOpen((prev) => !prev)}
+            className="text-slate-400 hover:text-slate-600"
+            aria-label={`Toggle ${label} options`}
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
+              className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+            >
+              <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
-        )}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
-          className={`flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
-        >
-          <path d="M2 3.5l3 3 3-3" stroke="#94a3b8" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
+        </div>
       </div>
 
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl shadow-apple-lg border border-slate-100 overflow-hidden">
+        <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white rounded-xl shadow-apple-lg border border-slate-100 overflow-hidden">
           {/* Existing options */}
           {filtered.length > 0 && (
             <div className="max-h-40 overflow-y-auto py-1">
@@ -169,7 +191,7 @@ function CategoryComboField({ label, value, onChange, categories = [] }) {
   const displayText = selectedCategory ? selectedCategory.name : 'Select or create new'
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className={`relative ${open ? 'z-40' : 'z-0'}`}>
       <label className="label">{label}</label>
       <div className={`flex items-center gap-2 input-modern pr-2 cursor-pointer ${ open ? 'ring-2 ring-indigo-500/20 border-indigo-400' : '' }`}
         onClick={() => setOpen(!open)}
@@ -177,24 +199,27 @@ function CategoryComboField({ label, value, onChange, categories = [] }) {
         <span className="flex-1 text-sm text-slate-900">
           {selectedCategory ? selectedCategory.name : <span className="text-slate-400">Select or create new</span>}
         </span>
-        {value && (
-          <button type="button" onClick={(e) => { e.stopPropagation(); select('') }}
-            className="text-slate-400 hover:text-slate-600 flex-shrink-0"
+        <div className="ml-2 flex items-center gap-1.5 flex-shrink-0">
+          {value && (
+            <button type="button" onClick={(e) => { e.stopPropagation(); select('') }}
+              className="text-slate-400 hover:text-slate-600"
+              aria-label={`Clear ${label}`}
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+              </svg>
+            </button>
+          )}
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
+            className={`transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-            </svg>
-          </button>
-        )}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
-          className={`flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
-        >
-          <path d="M2 3.5l3 3 3-3" stroke="#94a3b8" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
+            <path d="M2 3.5l3 3 3-3" stroke="#94a3b8" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
       </div>
 
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl shadow-apple-lg border border-slate-100 overflow-hidden">
+        <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white rounded-xl shadow-apple-lg border border-slate-100 overflow-hidden">
           {/* Search input */}
           <div className="p-2 border-b border-slate-100">
             <input
@@ -255,7 +280,8 @@ function AddProductModal({ onClose, onCreated }) {
   const [form, setForm]       = useState(EMPTY_FORM)
   const [categories, setCategories] = useState([])
   const [godowns, setGodowns] = useState([])
-  const [options, setOptions] = useState({ brands: [], sizes: [], finishes: [], units: [] })
+  const [existingProducts, setExistingProducts] = useState([])
+  const [options, setOptions] = useState({ brands: [], sizes: [], finishes: [], grades: [], units: [], packageSpecs: [] })
   const [saving, setSaving]   = useState(false)
   const [error, setError]     = useState('')
 
@@ -268,7 +294,26 @@ function AddProductModal({ onClose, onCreated }) {
     loadCategories()
     getProductFieldOptions().then(setOptions)
     getAllGodowns().then(setGodowns)
+    getAllTiles().then(setExistingProducts)
   }, [])
+
+  const normalized = (value) => (value || '').trim().toLowerCase()
+  const normalizedPackageCount = parsePackageCount(form.package_spec)
+  const normalizedCategoryId = form.category_id || null
+  const productNameSuggestions = [...new Set(existingProducts.map((product) => product.product_name).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  const selectedGodown = godowns.find((godown) => godown.id === form.godown_id)
+  const godownLocations = Array.isArray(selectedGodown?.locations) ? selectedGodown.locations : []
+
+  const matchingProduct = existingProducts.find((product) => (
+    normalized(product.product_name) === normalized(form.product_name) &&
+    normalized(product.brand) === normalized(form.brand) &&
+    normalized(product.size) === normalized(form.size) &&
+    normalized(product.finish) === normalized(form.finish) &&
+    normalized(product.grade) === normalized(form.grade) &&
+    normalized(product.unit) === normalized(form.unit) &&
+    parsePackageCount(product.package_spec ?? product.pieces_per_box) === normalizedPackageCount &&
+    (product.category_id || null) === normalizedCategoryId
+  ))
 
   const set = (field) => (val, shouldRefresh) => {
     setForm((f) => ({ ...f, [field]: val }))
@@ -283,6 +328,11 @@ function AddProductModal({ onClose, onCreated }) {
     e.preventDefault()
     if (!form.product_name.trim()) { setError('Product name is required.'); return }
 
+    if (matchingProduct) {
+      setError('This product has already been added. You can update or edit it instead.')
+      return
+    }
+
     // Validate stock section only if partially filled
     const hasStock = form.qty !== ''
     if (hasStock) {
@@ -296,10 +346,13 @@ function AddProductModal({ onClose, onCreated }) {
 
     const product = await createProduct({
       product_name: form.product_name.trim(),
-      brand:        form.brand,
-      size:         form.size,
-      finish:       form.finish,
-      unit:         form.unit,
+      brand:        form.brand || null,
+      size:         form.size || null,
+      finish:       form.finish || null,
+      grade:        form.grade || null,
+      unit:         form.unit || 'box',
+      package_spec: normalizedPackageCount != null ? String(normalizedPackageCount) : null,
+      pieces_per_box: normalizedPackageCount,
       category_id:  form.category_id || null,
     })
 
@@ -310,6 +363,7 @@ function AddProductModal({ onClose, onCreated }) {
         tile_id:    product.id,
         godown_id:  form.godown_id,
         batch_code: form.batch_code.trim(),
+        location_in_godown: form.location_in_godown || null,
         boxes:      Number(form.qty),
         price:      form.price !== '' ? Number(form.price) : 0,
       })
@@ -322,7 +376,7 @@ function AddProductModal({ onClose, onCreated }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" aria-modal="true" role="dialog">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-4xl max-h-[90vh] overflow-y-auto">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl z-10">
@@ -342,18 +396,17 @@ function AddProductModal({ onClose, onCreated }) {
 
           {/* Product name */}
           <div>
-            <label className="label">Product Name <span className="text-red-500">*</span></label>
-            <input
-              className="input-modern"
+            <ComboField
+              label="Product Name"
               value={form.product_name}
-              onChange={(e) => setForm((f) => ({ ...f, product_name: e.target.value }))}
+              onChange={set('product_name')}
+              suggestions={productNameSuggestions}
               placeholder="e.g. Glossy White Floor Tile"
-              autoFocus
             />
           </div>
 
           {/* Brand + Category */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <ComboField
               label="Brand"
               value={form.brand}
@@ -370,7 +423,7 @@ function AddProductModal({ onClose, onCreated }) {
           </div>
 
           {/* Size + Finish */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <ComboField
               label="Size"
               value={form.size}
@@ -386,16 +439,37 @@ function AddProductModal({ onClose, onCreated }) {
               suggestions={options.finishes}
               placeholder="Select or type new"
             />
+            <ComboField
+              label="Grade"
+              value={form.grade}
+              onChange={set('grade')}
+              suggestions={options.grades}
+              placeholder="Select or type new"
+            />
           </div>
 
-          {/* Unit */}
-          <ComboField
-            label="Unit"
-            value={form.unit}
-            onChange={set('unit')}
-            suggestions={options.units.length > 0 ? options.units : ['box', 'piece', 'sqft', 'sqm']}
-            placeholder="Select or type new"
-          />
+          {/* Unit + Packaging */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <ComboField
+              label="Unit"
+              value={form.unit}
+              onChange={set('unit')}
+              suggestions={options.units.length > 0 ? options.units : ['box', 'piece', 'sqft', 'sqm']}
+              placeholder="Select or type new"
+            />
+            <div>
+              <label className="label">Package Spec (pieces/box)</label>
+              <input
+                className="input-modern"
+                type="number"
+                min="1"
+                step="1"
+                value={form.package_spec}
+                onChange={setInput('package_spec')}
+                placeholder="e.g. 4"
+              />
+            </div>
+          </div>
 
           {/* ── Initial Stock ── */}
           <div className="border-t border-slate-100 pt-4 space-y-4">
@@ -404,11 +478,21 @@ function AddProductModal({ onClose, onCreated }) {
               <p className="text-xs text-slate-400 mt-0.5">Fill in to record opening stock right away.</p>
             </div>
 
-            {/* Godown + Batch */}
-            <div className="grid grid-cols-2 gap-3">
+            {/* Godown + Batch + Location */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               <div>
                 <label className="label">Godown</label>
-                <select className="input-modern" value={form.godown_id} onChange={setSelect('godown_id')}>
+                <select
+                  className="input-modern"
+                  value={form.godown_id}
+                  onChange={(event) => {
+                    setForm((current) => ({
+                      ...current,
+                      godown_id: event.target.value,
+                      location_in_godown: '',
+                    }))
+                  }}
+                >
                   <option value="">— Select —</option>
                   {godowns.map((g) => (
                     <option key={g.id} value={g.id}>{g.name}</option>
@@ -419,10 +503,22 @@ function AddProductModal({ onClose, onCreated }) {
                 <label className="label">Batch / Lot No.</label>
                 <input className="input-modern" value={form.batch_code} onChange={setInput('batch_code')} placeholder="e.g. B2024-01" />
               </div>
+              <div>
+                <label className="label">Location <span className="text-slate-400 font-normal">(optional)</span></label>
+                <select className="input-modern" value={form.location_in_godown} onChange={setSelect('location_in_godown')}>
+                  <option value="">{form.godown_id ? 'Select location' : 'Select godown first'}</option>
+                  {godownLocations.map((location) => (
+                    <option key={location} value={location}>{location}</option>
+                  ))}
+                </select>
+                {form.godown_id && godownLocations.length === 0 && (
+                  <p className="mt-2 text-xs text-amber-600">No saved locations in this godown yet. Add them from the Godowns tab first.</p>
+                )}
+              </div>
             </div>
 
             {/* Qty + Price */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">Quantity</label>
                 <input className="input-modern" type="number" min="1" value={form.qty} onChange={setInput('qty')} placeholder="0" />
@@ -448,13 +544,228 @@ function AddProductModal({ onClose, onCreated }) {
   )
 }
 
-function UpdateInventoryPage({ onQuickAdd, onProductCreated }) {
+function EditProductModal({ tile, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    product_name: tile.product_name || '',
+    brand: tile.brand || '',
+    size: tile.size || '',
+    finish: tile.finish || '',
+    grade: tile.grade || '',
+    unit: tile.unit || 'box',
+    package_spec: parsePackageCount(tile.package_spec ?? tile.pieces_per_box) || '',
+    category_id: tile.category_id || '',
+  })
+  const [categories, setCategories] = useState([])
+  const [existingProducts, setExistingProducts] = useState([])
+  const [options, setOptions] = useState({ brands: [], sizes: [], finishes: [], grades: [], units: [], packageSpecs: [] })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    getAllCategories().then(setCategories)
+    getProductFieldOptions().then(setOptions)
+    getAllTiles().then(setExistingProducts)
+  }, [])
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.product_name.trim()) {
+      setError('Product name is required.')
+      return
+    }
+
+    // Check for duplicates (excluding the current product being edited)
+    const normalized = (value) => (value || '').trim().toLowerCase()
+    const normalizedPackageCount = parsePackageCount(form.package_spec)
+    const normalizedCategoryId = form.category_id || null
+    
+    const duplicateProduct = existingProducts.find((product) => (
+      product.id !== tile.id && // Exclude current product
+      normalized(product.product_name) === normalized(form.product_name) &&
+      normalized(product.brand) === normalized(form.brand) &&
+      normalized(product.size) === normalized(form.size) &&
+      normalized(product.finish) === normalized(form.finish) &&
+      normalized(product.grade) === normalized(form.grade) &&
+      normalized(product.unit) === normalized(form.unit) &&
+      parsePackageCount(product.package_spec ?? product.pieces_per_box) === normalizedPackageCount &&
+      (product.category_id || null) === normalizedCategoryId
+    ))
+
+    if (duplicateProduct) {
+      setError('A product with these exact details already exists. Please modify at least one field to make it unique.')
+      return
+    }
+
+    setSaving(true)
+    setError('')
+    const ok = await updateProduct(tile.id, {
+      product_name: form.product_name.trim(),
+      brand: form.brand || null,
+      size: form.size || null,
+      finish: form.finish || null,
+      grade: form.grade || null,
+      unit: form.unit || 'box',
+      package_spec: normalizedPackageCount != null ? String(normalizedPackageCount) : null,
+      pieces_per_box: normalizedPackageCount,
+      category_id: form.category_id || null,
+    })
+    setSaving(false)
+
+    if (ok) {
+      onSaved()
+    } else {
+      setError('Failed to update product. Please try again.')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+      <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl z-10">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500">admin</p>
+            <h2 className="text-lg font-bold text-slate-900">Edit Product</h2>
+          </div>
+          <button type="button" onClick={onClose}
+            className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 1l8 8M9 1L1 9" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round"/></svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+          <ComboField
+            label="Product Name"
+            value={form.product_name}
+            onChange={(value) => setForm((current) => ({ ...current, product_name: value }))}
+            suggestions={[]}
+            placeholder="e.g. Glossy White Floor Tile"
+          />
+
+          <div className="grid grid-cols-2 gap-3">
+            <ComboField
+              label="Brand"
+              value={form.brand}
+              onChange={(value) => setForm((current) => ({ ...current, brand: value }))}
+              suggestions={options.brands}
+              placeholder="Select or type new"
+            />
+            <CategoryComboField
+              label="Category"
+              value={form.category_id}
+              onChange={(value) => setForm((current) => ({ ...current, category_id: value }))}
+              categories={categories}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <ComboField
+              label="Size"
+              value={form.size}
+              onChange={(value) => setForm((current) => ({ ...current, size: value }))}
+              suggestions={options.sizes}
+              placeholder="e.g. 12*12 or 24*48"
+              transformInput={(value) => value.replace(/\*/g, '×')}
+            />
+            <ComboField
+              label="Finish"
+              value={form.finish}
+              onChange={(value) => setForm((current) => ({ ...current, finish: value }))}
+              suggestions={options.finishes}
+              placeholder="Select or type new"
+            />
+            <ComboField
+              label="Grade"
+              value={form.grade}
+              onChange={(value) => setForm((current) => ({ ...current, grade: value }))}
+              suggestions={options.grades}
+              placeholder="Select or type new"
+            />
+            <ComboField
+              label="Unit"
+              value={form.unit}
+              onChange={(value) => setForm((current) => ({ ...current, unit: value }))}
+              suggestions={options.units.length > 0 ? options.units : ['box', 'piece', 'sqft', 'sqm']}
+              placeholder="Select or type new"
+            />
+            <div>
+              <label className="label">Package Spec (pieces/box)</label>
+              <input
+                className="input-modern"
+                type="number"
+                min="1"
+                step="1"
+                value={form.package_spec}
+                onChange={(event) => setForm((current) => ({ ...current, package_spec: event.target.value }))}
+                placeholder="e.g. 4"
+              />
+            </div>
+          </div>
+
+          {error && <p className="text-xs font-medium text-red-500">{error}</p>}
+
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+            <button type="submit" disabled={saving} className="btn-primary flex-1">
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function DeleteProductModal({ tile, onClose, onConfirm, deleting }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+      <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="h-1 w-full bg-red-500" />
+        <div className="p-7 space-y-5">
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 rounded-xl bg-red-50 flex-shrink-0 flex items-center justify-center">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <polyline points="3 6 5 6 21 6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round"/>
+                <path d="M19 6l-1 14H6L5 6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M10 11v6M14 11v6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round"/>
+                <path d="M9 6V4h6v2" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-slate-900 leading-snug">Delete &quot;{tile.product_name || tile.name}&quot;?</h2>
+              <p className="text-xs text-slate-400 mt-0.5">{tile.brand}{tile.size ? ` · ${tile.size}` : ''}</p>
+            </div>
+          </div>
+          <p className="text-sm text-slate-600">This action <span className="font-semibold text-red-500">cannot be undone</span>. Use edit if you only need to change product details.</p>
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1" disabled={deleting}>Cancel</button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-60"
+              disabled={deleting}
+            >
+              {deleting ? 'Deleting...' : 'Delete Product'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function UpdateInventoryPage({ onQuickAdd, onProductCreated, onDataChange }) {
   const [query, setQuery]         = useState('')
   const debouncedQuery            = useDebouncedValue(query, 200)
   const [tiles, setTiles]         = useState([])
   const [loading, setLoading]     = useState(false)
   const [loadingId, setLoadingId] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [editingTile, setEditingTile] = useState(null)
+  const [deletingTile, setDeletingTile] = useState(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const loadTiles = async (q) => {
     setLoading(true)
@@ -475,8 +786,31 @@ function UpdateInventoryPage({ onQuickAdd, onProductCreated }) {
   const handleProductCreated = (product) => {
     setShowAddModal(false)
     if (onProductCreated) onProductCreated()
+    if (onDataChange) onDataChange()
     // Refresh list so the new product appears right away
     loadTiles(debouncedQuery)
+  }
+
+  const handleProductUpdated = async () => {
+    setEditingTile(null)
+    if (onProductCreated) onProductCreated()
+    if (onDataChange) onDataChange()
+    await loadTiles(debouncedQuery)
+  }
+
+  const handleProductDeleted = async () => {
+    if (!deletingTile) return
+    setIsDeleting(true)
+    const result = await deleteProduct(deletingTile.id)
+    setIsDeleting(false)
+    if (!result.ok) {
+      window.alert(result.message)
+      return
+    }
+    setDeletingTile(null)
+    if (onProductCreated) onProductCreated()
+    if (onDataChange) onDataChange()
+    await loadTiles(debouncedQuery)
   }
 
   return (
@@ -485,6 +819,21 @@ function UpdateInventoryPage({ onQuickAdd, onProductCreated }) {
         <AddProductModal
           onClose={() => setShowAddModal(false)}
           onCreated={handleProductCreated}
+        />
+      )}
+      {editingTile && (
+        <EditProductModal
+          tile={editingTile}
+          onClose={() => setEditingTile(null)}
+          onSaved={handleProductUpdated}
+        />
+      )}
+      {deletingTile && (
+        <DeleteProductModal
+          tile={deletingTile}
+          onClose={() => { if (!isDeleting) setDeletingTile(null) }}
+          onConfirm={handleProductDeleted}
+          deleting={isDeleting}
         />
       )}
 
@@ -523,12 +872,9 @@ function UpdateInventoryPage({ onQuickAdd, onProductCreated }) {
       ) : (
         <div className="space-y-2">
           {tiles.map((tile) => (
-            <button
+            <div
               key={tile.id}
-              type="button"
-              onClick={() => handleTileSelect(tile)}
-              disabled={loadingId === tile.id}
-              className="w-full text-left card px-5 py-4 flex items-center gap-4 hover:shadow-apple-sm hover:border-slate-200 transition-all duration-200 disabled:opacity-60"
+              className="w-full card px-5 py-4 flex items-center gap-4 hover:shadow-apple-sm hover:border-slate-200 transition-all duration-200"
             >
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-100 flex-shrink-0 flex items-center justify-center">
                 {loadingId === tile.id ? (
@@ -540,12 +886,20 @@ function UpdateInventoryPage({ onQuickAdd, onProductCreated }) {
                 )}
               </div>
 
-              <div className="flex-1 min-w-0">
+              <button
+                type="button"
+                onClick={() => handleTileSelect(tile)}
+                disabled={loadingId === tile.id}
+                className="flex-1 min-w-0 text-left disabled:opacity-60"
+              >
                 {tile.brand && <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 leading-none mb-1">{tile.brand}</p>}
                 <p className="text-sm font-semibold text-slate-800 truncate">
                   {tile.product_name || tile.name}
                 </p>
-              </div>
+                {(parsePackageCount(tile.package_spec ?? tile.pieces_per_box) != null) && (
+                  <p className="text-xs text-slate-500 mt-1">Pack: {parsePackageCount(tile.package_spec ?? tile.pieces_per_box)} pcs/box</p>
+                )}
+              </button>
 
               {tile.size && (
                 <span className="hidden sm:inline-flex items-center px-3 py-1 rounded-lg bg-slate-100 text-xs font-semibold text-slate-500 flex-shrink-0">
@@ -553,10 +907,54 @@ function UpdateInventoryPage({ onQuickAdd, onProductCreated }) {
                 </span>
               )}
 
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="flex-shrink-0" aria-hidden="true">
-                <path d="M4.5 2l4 4-4 4" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
+              <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setEditingTile(tile)}
+                  className="btn-ghost px-3 py-1.5 text-xs"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeletingTile(tile)}
+                  className="px-3 py-1.5 text-xs font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+
+              <div className="sm:hidden flex items-center gap-1 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setEditingTile(tile)}
+                  className="w-8 h-8 rounded-lg hover:bg-slate-100 transition-colors flex items-center justify-center"
+                  aria-label="Edit product"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 20h4l10-10-4-4L4 16v4Z" stroke="#6366f1" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M12 6l4 4" stroke="#6366f1" strokeWidth="1.8" strokeLinecap="round"/></svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDeletingTile(tile)}
+                  className="w-8 h-8 rounded-lg hover:bg-red-50 transition-colors flex items-center justify-center"
+                  aria-label="Delete product"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 6h18" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round"/><path d="M8 6V4h8v2" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M7 6l1 14h8l1-14" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => handleTileSelect(tile)}
+                disabled={loadingId === tile.id}
+                className="w-7 h-7 rounded-lg hover:bg-slate-100 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-60"
+                aria-label={`Open update for ${tile.product_name || tile.name}`}
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M4.5 2l4 4-4 4" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
       )}

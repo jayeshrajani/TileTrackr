@@ -4,14 +4,16 @@ function AddInventoryModal({ tile, batches, godowns, onClose, onSave }) {
   const [mode, setMode] = useState(batches.length > 0 ? 'existing' : 'new')
   const [batchId, setBatchId] = useState(batches[0]?.batch_code ?? '')
   const [newBatchCode, setNewBatchCode] = useState('')
-  const [shade, setShade] = useState('')
   const [godownId, setGodownId] = useState(godowns[0]?.id ?? '')
+  const [location, setLocation] = useState('')
   const [quantity, setQuantity] = useState(0)
   const [loading, setLoading] = useState(false)
   const [saveError, setSaveError] = useState('')
 
   const unit = tile?.unit || 'box'
   const unitPlural = unit.endsWith('s') ? unit : `${unit}s`
+  const selectedGodown = godowns.find((godown) => godown.id === godownId)
+  const godownLocations = Array.isArray(selectedGodown?.locations) ? selectedGodown.locations : []
 
   // Get current stock for selected batch/godown
   const getCurrentStock = () => {
@@ -67,6 +69,7 @@ function AddInventoryModal({ tile, batches, godowns, onClose, onSave }) {
       tile_id: tile.id,
       batch_code: mode === 'new' ? newBatchCode.trim() : batchId,
       godown_id: godownId,
+      location_in_godown: location || null,
       boxes: quantity,
     })
     setLoading(false)
@@ -155,28 +158,16 @@ function AddInventoryModal({ tile, batches, godowns, onClose, onSave }) {
           )}
 
           {mode === 'new' && (
-            <>
-              <div>
-                <label className="label">Batch Code</label>
-                <input
-                  value={newBatchCode}
-                  onChange={(e) => setNewBatchCode(e.target.value)}
-                  placeholder="e.g. BATCH-001"
-                  className="input-modern"
-                  disabled={loading}
-                />
-              </div>
-              <div>
-                <label className="label">Shade <span className="text-slate-400 font-normal normal-case tracking-normal">(optional)</span></label>
-                <input
-                  value={shade}
-                  onChange={(e) => setShade(e.target.value)}
-                  placeholder="e.g. Light Gray"
-                  className="input-modern"
-                  disabled={loading}
-                />
-              </div>
-            </>
+            <div>
+              <label className="label">Batch Code</label>
+              <input
+                value={newBatchCode}
+                onChange={(e) => setNewBatchCode(e.target.value)}
+                placeholder="e.g. BATCH-001"
+                className="input-modern"
+                disabled={loading}
+              />
+            </div>
           )}
 
           <div>
@@ -185,6 +176,7 @@ function AddInventoryModal({ tile, batches, godowns, onClose, onSave }) {
               value={godownId}
               onChange={(e) => {
                 setGodownId(e.target.value)
+                setLocation('')
                 setQuantity(0) // Reset quantity when changing godown
               }}
               className="input-modern"
@@ -196,6 +188,26 @@ function AddInventoryModal({ tile, batches, godowns, onClose, onSave }) {
                 </option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="label">Location in Godown <span className="text-slate-400 font-normal normal-case tracking-normal">(optional)</span></label>
+            <select
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="input-modern"
+              disabled={loading}
+            >
+              <option value="">{godownId ? 'Select location' : 'Select a godown first'}</option>
+              {godownLocations.map((godownLocation) => (
+                <option key={godownLocation} value={godownLocation}>
+                  {godownLocation}
+                </option>
+              ))}
+            </select>
+            {godownId && godownLocations.length === 0 && (
+              <p className="mt-2 text-xs text-amber-600">No saved locations in this godown yet. Add them from the Godowns tab first.</p>
+            )}
           </div>
 
           {/* Quantity adjuster with +/- buttons */}

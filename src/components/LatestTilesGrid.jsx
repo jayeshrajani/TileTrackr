@@ -2,7 +2,33 @@ import { useState } from 'react'
 import ExpandableTileCard from './ExpandableTileCard'
 import { getTileInventory } from '../services/inventoryService'
 
-function LatestTilesGrid({ tiles, onToggleFavorite, isAdminLoggedIn, onQuickAdd }) {
+function getGradeTagClass(grade) {
+  const normalizedGrade = grade?.trim().toLowerCase()
+
+  if (normalizedGrade === 'standard') {
+    return 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+  }
+
+  if (normalizedGrade === 'commercial') {
+    return 'border border-amber-200 bg-amber-50 text-amber-700'
+  }
+
+  return 'border border-indigo-200 bg-indigo-50 text-indigo-600'
+}
+
+function getPackageCount(value, fallback) {
+  const source = value ?? fallback
+  if (source == null || source === '') return null
+  if (typeof source === 'number') {
+    return Number.isFinite(source) && source > 0 ? Math.round(source) : null
+  }
+  const match = String(source).match(/\d+/)
+  if (!match) return null
+  const parsed = Number(match[0])
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null
+}
+
+function LatestTilesGrid({ tiles, onToggleFavorite, isAdminLoggedIn, onQuickAdd, onDataChange }) {
   const [expandedId, setExpandedId] = useState(null)
   const [expandedInventory, setExpandedInventory] = useState(null)
   const [loadingId, setLoadingId] = useState(null)
@@ -34,6 +60,12 @@ function LatestTilesGrid({ tiles, onToggleFavorite, isAdminLoggedIn, onQuickAdd 
     setExpandedInventory(data)
   }
 
+  // Refresh entire tiles list and close expanded view (called after product deletion)
+  const handleDataChange = () => {
+    handleCollapse()
+    if (onDataChange) onDataChange()
+  }
+
   if (tiles.length === 0) {
     return (
       <div className="card py-20 text-center">
@@ -54,6 +86,8 @@ function LatestTilesGrid({ tiles, onToggleFavorite, isAdminLoggedIn, onQuickAdd 
   const gridItems = tiles.flatMap((tile) => {
     const isSelected = expandedId === tile.id
     const isLoading = loadingId === tile.id
+
+    const packageCount = getPackageCount(tile.package_spec, tile.pieces_per_box)
 
     const card = (
       <button
@@ -103,6 +137,17 @@ function LatestTilesGrid({ tiles, onToggleFavorite, isAdminLoggedIn, onQuickAdd 
             <p className="text-sm font-semibold text-slate-800 line-clamp-2 leading-snug">
               {tile.product_name || tile.name}
             </p>
+            {tile.grade && (
+              <span className={`mt-2 inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${getGradeTagClass(tile.grade)}`}>
+                {tile.grade}
+              </span>
+            )}
+            {packageCount != null && (
+              <p className="mt-1 text-xs text-slate-500">Pack: {packageCount} pcs/box</p>
+            )}
+            <p className="mt-1.5 text-xs font-semibold text-indigo-600">
+              Stock: {tile.totalBoxes || 0} {tile.unit || 'box'}{(tile.totalBoxes || 0) !== 1 ? 'es' : ''}
+            </p>
           </div>
 
           {/* Size + chevron row */}
@@ -140,6 +185,7 @@ function LatestTilesGrid({ tiles, onToggleFavorite, isAdminLoggedIn, onQuickAdd 
             isAdminLoggedIn={isAdminLoggedIn}
             onCollapse={handleCollapse}
             onStockUpdated={handleRefreshExpanded}
+            onDataChange={handleDataChange}
           />
         ) : (
           <div className="py-12 flex items-center justify-center">

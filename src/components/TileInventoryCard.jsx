@@ -1,6 +1,32 @@
 import { useState } from 'react'
 import { updateInventoryEntry } from '../services/inventoryService'
 
+function getGradeTagClass(grade) {
+  const normalizedGrade = grade?.trim().toLowerCase()
+
+  if (normalizedGrade === 'standard') {
+    return 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+  }
+
+  if (normalizedGrade === 'commercial') {
+    return 'border border-amber-200 bg-amber-50 text-amber-700'
+  }
+
+  return 'border border-indigo-200 bg-indigo-50 text-indigo-600'
+}
+
+function getPackageCount(value, fallback) {
+  const source = value ?? fallback
+  if (source == null || source === '') return null
+  if (typeof source === 'number') {
+    return Number.isFinite(source) && source > 0 ? Math.round(source) : null
+  }
+  const match = String(source).match(/\d+/)
+  if (!match) return null
+  const parsed = Number(match[0])
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null
+}
+
 function TileInventoryCard({ tileInventory, onQuickAdd }) {
   const { tile, batches, totalBoxes } = tileInventory
   const [editMap, setEditMap] = useState({})
@@ -9,6 +35,7 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
 
   const unit = tile?.unit || 'box'
   const unitPlural = unit.endsWith('s') ? unit : `${unit}s`
+  const packageCount = getPackageCount(tile.package_spec, tile.pieces_per_box)
 
   const startEdit = (row) => {
     setEditMap((prev) => ({
@@ -67,6 +94,11 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
               <h2 className="text-3xl font-bold text-slate-900">
                 {tile.product_name || tile.name}
               </h2>
+              {tile.grade && (
+                <span className={`mt-3 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${getGradeTagClass(tile.grade)}`}>
+                  {tile.grade}
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-6">
               <div>
@@ -81,6 +113,14 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
                 </p>
                 <p className="text-lg font-bold text-indigo-600">{totalBoxes} {unitPlural}</p>
               </div>
+              {packageCount != null && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                    Package
+                  </p>
+                  <p className="text-lg font-bold text-indigo-600">{packageCount} pcs/box</p>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex gap-3">
@@ -106,7 +146,7 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
       {isDetailsOpen && (
         <section className="card p-8 space-y-8">
           {/* Additional Attributes */}
-          {(tile.finish || tile.category) && (
+          {(tile.finish || tile.category || tile.grade || packageCount != null) && (
             <div className="grid grid-cols-2 gap-8">
               {tile.finish && (
                 <div>
@@ -122,6 +162,22 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
                     Category
                   </p>
                   <p className="text-lg font-bold text-slate-800">{tile.category}</p>
+                </div>
+              )}
+              {tile.grade && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                    Grade
+                  </p>
+                  <p className="text-lg font-bold text-slate-800">{tile.grade}</p>
+                </div>
+              )}
+              {packageCount != null && (
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                    Package
+                  </p>
+                  <p className="text-lg font-bold text-slate-800">{packageCount} pcs/box</p>
                 </div>
               )}
             </div>

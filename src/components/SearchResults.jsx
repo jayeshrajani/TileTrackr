@@ -1,4 +1,16 @@
 function SearchResults({ query, results, selectedTileId, onSelectTile }) {
+  const getPackageCount = (value, fallback) => {
+    const source = value ?? fallback
+    if (source == null || source === '') return null
+    if (typeof source === 'number') {
+      return Number.isFinite(source) && source > 0 ? Math.round(source) : null
+    }
+    const match = String(source).match(/\d+/)
+    if (!match) return null
+    const parsed = Number(match[0])
+    return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null
+  }
+
   if (!query) return null
 
   return (
@@ -7,8 +19,10 @@ function SearchResults({ query, results, selectedTileId, onSelectTile }) {
         <p className="px-8 py-6 text-lg text-slate-400">No tiles found.</p>
       ) : (
         <ul className="max-h-96 overflow-auto divide-y divide-slate-100">
-          {results.map((tile) => (
-            <li key={tile.id}>
+          {results.map((tile) => {
+            const packageCount = getPackageCount(tile.package_spec, tile.pieces_per_box)
+
+            return <li key={tile.id}>
               <button
                 type="button"
                 onClick={() => onSelectTile(tile.id)}
@@ -22,14 +36,17 @@ function SearchResults({ query, results, selectedTileId, onSelectTile }) {
                   <p className="font-semibold text-slate-800">
                     {tile.brand} {tile.name}
                   </p>
-                  <p className="mt-1 text-sm text-slate-400">{tile.size}</p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {tile.size}
+                    {packageCount != null ? ` • Pack: ${packageCount} pcs/box` : ''}
+                  </p>
                 </div>
                 <div className="text-sm text-indigo-600 font-semibold">
                   {tile.id === selectedTileId ? '✓ Selected' : 'View'}
                 </div>
               </button>
             </li>
-          ))}
+          })}
         </ul>
       )}
     </div>

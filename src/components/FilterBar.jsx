@@ -155,11 +155,32 @@ function FilterDropdown({ label, options, selected, onChange }) {
 }
 
 function FilterBar({ allTiles, filters, onChange, resultCount, totalCount }) {
-  // Build option lists with counts
+  // Build option lists with counts - cascading based on selected filters
   const options = useMemo(() => {
-    const tally = (accessor) => {
+    // Apply filters progressively for cascading
+    let filteredForBrand = allTiles
+    if (filters.brand.length > 0) {
+      filteredForBrand = allTiles.filter(t => filters.brand.includes(t.brand))
+    }
+
+    let filteredForSize = filteredForBrand
+    if (filters.size.length > 0) {
+      filteredForSize = filteredForBrand.filter(t => filters.size.includes(t.size))
+    }
+
+    let filteredForFinish = filteredForSize
+    if (filters.finish.length > 0) {
+      filteredForFinish = filteredForSize.filter(t => filters.finish.includes(t.finish))
+    }
+
+    let filteredForCategory = filteredForFinish
+    if (filters.category.length > 0) {
+      filteredForCategory = filteredForFinish.filter(t => filters.category.includes(t.categories?.name))
+    }
+
+    const tally = (accessor, sourceList) => {
       const map = {}
-      allTiles.forEach((t) => {
+      sourceList.forEach((t) => {
         const v = accessor(t)
         if (v) map[v] = (map[v] || 0) + 1
       })
@@ -167,22 +188,25 @@ function FilterBar({ allTiles, filters, onChange, resultCount, totalCount }) {
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([value, count]) => ({ value, count }))
     }
+
     return {
-      brand:    tally((t) => t.brand),
-      size:     tally((t) => t.size),
-      finish:   tally((t) => t.finish),
-      category: tally((t) => t.categories?.name),
+      brand:    tally((t) => t.brand, allTiles),
+      size:     tally((t) => t.size, filteredForBrand),
+      finish:   tally((t) => t.finish, filteredForSize),
+      category: tally((t) => t.categories?.name, filteredForFinish),
+      grade:    tally((t) => t.grade, filteredForCategory),
     }
-  }, [allTiles])
+  }, [allTiles, filters])
 
   const totalActive =
     filters.brand.length + filters.size.length +
     filters.finish.length + filters.category.length +
-    (filters.favoritesOnly ? 1 : 0)
+    filters.grade.length + (filters.favoritesOnly ? 1 : 0)
 
   const hasAny      = totalActive > 0
   const favCount    = allTiles.filter((t) => t.is_favorite).length
-  const clearAll    = () => onChange({ brand: [], size: [], finish: [], category: [], favoritesOnly: false })
+  const showFavToggle = favCount > 0
+  const clearAll    = () => onChange({ brand: [], size: [], finish: [], category: [], grade: [], favoritesOnly: false })
 
   return (
     <div className="space-y-3">
@@ -212,9 +236,15 @@ function FilterBar({ allTiles, filters, onChange, resultCount, totalCount }) {
           selected={filters.finish}
           onChange={(v) => onChange({ ...filters, finish: v })}
         />
+        <FilterDropdown
+          label="Grade"
+          options={options.grade}
+          selected={filters.grade}
+          onChange={(v) => onChange({ ...filters, grade: v })}
+        />
 
-        {/* Favourites toggle */}
-        {favCount > 0 && (
+          {/* Favourites toggle */}
+        {showFavToggle ? (
           <button
             type="button"
             onClick={() => onChange({ ...filters, favoritesOnly: !filters.favoritesOnly })}
@@ -234,7 +264,7 @@ function FilterBar({ allTiles, filters, onChange, resultCount, totalCount }) {
             <span className="hidden xs:inline">Favourites</span>
             <span className="xs:hidden">♥</span>
           </button>
-        )}
+        ) : null}
 
         {/* Result count + clear */}
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0 w-full sm:w-auto sm:ml-auto justify-end">

@@ -1,5 +1,10 @@
-import { useState, useEffect } from 'react'
-import { createGodown, deleteGodown, getGodownInventoryCount } from '../services/inventoryService'
+import { useEffect, useState } from 'react'
+import {
+  createGodown,
+  deleteGodown,
+  getGodownInventoryCount,
+  updateGodownLocations,
+} from '../services/inventoryService'
 
 function DeleteModal({ godown, onCancel, onDeleted }) {
   const [phase, setPhase]     = useState('loading') // loading | safe | blocked | deleting
@@ -129,10 +134,14 @@ function DeleteModal({ godown, onCancel, onDeleted }) {
   )
 }
 
-function GodownManager({ godowns, onGodownDeleted, onGodownAdded }) {
+function GodownManager({ godowns, onGodownDeleted, onGodownAdded, onGodownUpdated }) {
   const [name, setName]               = useState('')
   const [loading, setLoading]         = useState(false)
   const [pendingGodown, setPendingGodown] = useState(null)
+  const [locationDrafts, setLocationDrafts] = useState({})
+  const [locationError, setLocationError] = useState('')
+  const [savingLocationFor, setSavingLocationFor] = useState('')
+  const [deletingLocationKey, setDeletingLocationKey] = useState('')
 
   const onAdd = async (event) => {
     event.preventDefault()
@@ -150,6 +159,69 @@ function GodownManager({ godowns, onGodownDeleted, onGodownAdded }) {
     if (onGodownDeleted) onGodownDeleted()
   }
 
+  const updateLocationDraft = (godownId, value) => {
+    setLocationDrafts((current) => ({
+      ...current,
+      [godownId]: value,
+    }))
+  }
+
+  const handleAddLocation = async (godownId) => {
+    const godown = godowns.find((item) => item.id === godownId)
+    const trimmed = (locationDrafts[godownId] || '').trim()
+    if (!trimmed || !godown) return
+
+    const currentLocations = Array.isArray(godown.locations) ? godown.locations : []
+    if (currentLocations.some((location) => location.toLowerCase() === trimmed.toLowerCase())) {
+      setLocationError('This location already exists in that godown.')
+      return
+    }
+
+    setSavingLocationFor(godownId)
+    setLocationError('')
+    const result = await updateGodownLocations(godownId, [...currentLocations, trimmed])
+    setSavingLocationFor('')
+
+    if (!result.ok) {
+      const missingColumn = result.error?.code === '42703'
+      setLocationError(
+        missingColumn
+          ? 'Add a locations jsonb column to the godowns table to save predefined locations here.'
+          : 'Could not save this location right now.'
+      )
+      return
+    }
+
+    updateLocationDraft(godownId, '')
+    if (onGodownUpdated) onGodownUpdated()
+  }
+
+  const handleDeleteLocation = async (godownId, locationName) => {
+    const godown = godowns.find((item) => item.id === godownId)
+    if (!godown) return
+
+    const currentLocations = Array.isArray(godown.locations) ? godown.locations : []
+    const nextLocations = currentLocations.filter((location) => location !== locationName)
+    const locationKey = `${godownId}:${locationName}`
+
+    setDeletingLocationKey(locationKey)
+    setLocationError('')
+    const result = await updateGodownLocations(godownId, nextLocations)
+    setDeletingLocationKey('')
+
+    if (!result.ok) {
+      const missingColumn = result.error?.code === '42703'
+      setLocationError(
+        missingColumn
+          ? 'Add a locations jsonb column to the godowns table to save predefined locations here.'
+          : 'Could not delete this saved location right now.'
+      )
+      return
+    }
+
+    if (onGodownUpdated) onGodownUpdated()
+  }
+
   return (
     <div className="space-y-8">
       {pendingGodown && (
@@ -164,7 +236,15 @@ function GodownManager({ godowns, onGodownDeleted, onGodownAdded }) {
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500 mb-1.5">Storage Locations</p>
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Godowns</h1>
+        <p className="text-sm text-slate-500 mt-1">Manage each godown and its saved internal locations in one place.</p>
       </div>
+
+      {locationError && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm font-medium text-amber-900">{locationError}</p>
+          <p className="text-xs text-amber-700 mt-1">Recommended schema: add a locations jsonb column on godowns instead of creating a separate locations table.</p>
+        </div>
+      )}
 
       {/* Godown list */}
       {godowns.length === 0 ? (
@@ -177,23 +257,83 @@ function GodownManager({ godowns, onGodownDeleted, onGodownAdded }) {
           {godowns.map((godown) => (
             <div
               key={godown.id}
-              className="card px-5 py-4 flex items-center justify-between gap-3"
+              className="card px-5 py-5 space-y-4"
             >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                    <path d="M1 6l6-4 6 4v6a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V6z" stroke="#6366f1" strokeWidth="1.4" fill="none"/>
-                    <path d="M5 13V8h4v5" stroke="#6366f1" strokeWidth="1.4" strokeLinecap="round"/>
-                  </svg>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                      <path d="M1 6l6-4 6 4v6a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V6z" stroke="#6366f1" strokeWidth="1.4" fill="none"/>
+                      <path d="M5 13V8h4v5" stroke="#6366f1" strokeWidth="1.4" strokeLinecap="round"/>
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{godown.name}</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {(Array.isArray(godown.locations) ? godown.locations.length : 0)} saved location{(Array.isArray(godown.locations) ? godown.locations.length : 0) === 1 ? '' : 's'}
+                    </p>
+                  </div>
                 </div>
-                <p className="text-sm font-semibold text-slate-800 truncate">{godown.name}</p>
+                <button
+                  className="btn-danger px-3 py-1.5 text-xs flex-shrink-0"
+                  onClick={() => setPendingGodown(godown)}
+                >
+                  Delete
+                </button>
               </div>
-              <button
-                className="btn-danger px-3 py-1.5 text-xs flex-shrink-0"
-                onClick={() => setPendingGodown(godown)}
-              >
-                Delete
-              </button>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Locations inside this godown</p>
+                </div>
+
+                {Array.isArray(godown.locations) && godown.locations.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {godown.locations.map((location) => {
+                      const locationKey = `${godown.id}:${location}`
+                      return (
+                      <span
+                        key={locationKey}
+                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700"
+                      >
+                        {location}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteLocation(godown.id, location)}
+                          disabled={deletingLocationKey === locationKey}
+                          className="text-slate-400 transition-colors hover:text-red-500 disabled:opacity-50"
+                          aria-label={`Delete ${location}`}
+                        >
+                          {deletingLocationKey === locationKey ? '…' : '×'}
+                        </button>
+                      </span>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-3 text-xs text-slate-400">
+                    No saved locations yet for this godown.
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <input
+                    value={locationDrafts[godown.id] || ''}
+                    onChange={(event) => updateLocationDraft(godown.id, event.target.value)}
+                    placeholder="e.g. A Rack 3"
+                    className="input-modern flex-1"
+                    disabled={savingLocationFor === godown.id}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleAddLocation(godown.id)}
+                    disabled={savingLocationFor === godown.id || !(locationDrafts[godown.id] || '').trim()}
+                    className="btn-primary flex-shrink-0 px-4"
+                  >
+                    {savingLocationFor === godown.id ? '…' : 'Add'}
+                  </button>
+                </div>
+              </div>
             </div>
           ))}
         </div>

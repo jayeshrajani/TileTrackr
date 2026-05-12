@@ -5,6 +5,7 @@ import SearchBar from './components/SearchBar'
 import FilterBar from './components/FilterBar'
 import LatestTilesGrid from './components/LatestTilesGrid'
 import UpdateInventoryPage from './components/UpdateInventoryPage'
+import TradesPage from './components/TradesPage'
 import { useDebouncedValue } from './hooks/useDebouncedValue'
 
 
@@ -13,6 +14,7 @@ import {
   getAllGodowns,
   getAllTiles,
   toggleFavorite,
+  subscribeToMockDb,
 } from './services/inventoryService'
 
 const ADMIN_SESSION_KEY = 'tileflow_admin_session'
@@ -36,7 +38,7 @@ function App() {
   const [godowns, setGodowns] = useState([])
   const [allTiles, setAllTiles] = useState([])
   const [loading, setLoading] = useState(true)
-  const [filters, setFilters] = useState({ brand: [], size: [], finish: [], category: [], favoritesOnly: false })
+  const [filters, setFilters] = useState({ brand: [], size: [], finish: [], category: [], grade: [], favoritesOnly: false })
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [modalData, setModalData] = useState(null)
@@ -57,6 +59,19 @@ function App() {
     })
   }, [])
 
+  // Subscribe to real-time inventory changes
+  useEffect(() => {
+    const unsubscribe = subscribeToMockDb(() => {
+      refetchTiles()
+    })
+    return () => unsubscribe()
+  }, [])
+
+  const refetchTiles = async () => {
+    const data = await getAllTiles()
+    setAllTiles(data)
+  }
+
   // Client-side search + filter
   const displayedTiles = useMemo(() => {
     let result = allTiles
@@ -69,6 +84,8 @@ function App() {
       result = result.filter((t) => filters.finish.includes(t.finish))
     if (filters.category.length > 0)
       result = result.filter((t) => filters.category.includes(t.categories?.name))
+    if (filters.grade.length > 0)
+      result = result.filter((t) => filters.grade.includes(t.grade))
     if (filters.favoritesOnly)
       result = result.filter((t) => t.is_favorite)
 
@@ -250,6 +267,18 @@ function App() {
             </button>
             {isAdminLoggedIn && (
               <button
+                onClick={() => setActiveTab('trades')}
+                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
+                  activeTab === 'trades'
+                    ? 'bg-white text-slate-900 shadow-apple-xs'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Trade
+              </button>
+            )}
+            {isAdminLoggedIn && (
+              <button
                 onClick={() => setActiveTab('update')}
                 className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
                   activeTab === 'update'
@@ -257,7 +286,7 @@ function App() {
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
-              Update
+                Update Inventory
               </button>
             )}
             {isAdminLoggedIn && (
@@ -333,6 +362,7 @@ function App() {
                 onToggleFavorite={handleToggleFavorite}
                 isAdminLoggedIn={isAdminLoggedIn}
                 onQuickAdd={handleQuickAdd}
+                onDataChange={refetchTiles}
               />
             )}
           </div>
@@ -341,6 +371,7 @@ function App() {
         {activeTab === 'update' && isAdminLoggedIn && (
           <UpdateInventoryPage
             onQuickAdd={handleQuickAdd}
+            onDataChange={refetchTiles}
           />
         )}
 
@@ -349,7 +380,12 @@ function App() {
             godowns={godowns}
             onGodownAdded={() => getAllGodowns().then(setGodowns)}
             onGodownDeleted={() => getAllGodowns().then(setGodowns)}
+            onGodownUpdated={() => getAllGodowns().then(setGodowns)}
           />
+        )}
+
+        {activeTab === 'trades' && isAdminLoggedIn && (
+          <TradesPage onTransactionCreated={refetchTiles} />
         )}
       </main>
 
