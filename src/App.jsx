@@ -38,7 +38,7 @@ function App() {
   const [godowns, setGodowns] = useState([])
   const [allTiles, setAllTiles] = useState([])
   const [loading, setLoading] = useState(true)
-  const [filters, setFilters] = useState({ brand: [], size: [], finish: [], category: [], grade: [], favoritesOnly: false })
+  const [filters, setFilters] = useState({ brand: [], size: [], finish: [], category: [], grade: [], favoritesOnly: false, inStockOnly: true })
 
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
   const [modalData, setModalData] = useState(null)
@@ -76,6 +76,8 @@ function App() {
   const displayedTiles = useMemo(() => {
     let result = allTiles
 
+    if (filters.inStockOnly)
+      result = result.filter((t) => (t.totalBoxes || 0) > 0)
     if (filters.brand.length > 0)
       result = result.filter((t) => filters.brand.includes(t.brand))
     if (filters.size.length > 0)
@@ -347,6 +349,29 @@ function App() {
               resultCount={displayedTiles.length}
               totalCount={allTiles.length}
             />
+
+            {/* In Stock Toggle */}
+            <div className="flex items-center justify-between gap-4">
+              <button
+                onClick={() => setFilters(f => ({ ...f, inStockOnly: !f.inStockOnly }))}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                  filters.inStockOnly
+                    ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-200 shadow-apple-xs'
+                    : 'bg-slate-100 text-slate-500 border-2 border-transparent hover:bg-slate-200'
+                }`}
+              >
+                <div className={`w-4 h-4 rounded-md flex items-center justify-center transition-all ${
+                  filters.inStockOnly ? 'bg-emerald-500' : 'bg-slate-300'
+                }`}>
+                  {filters.inStockOnly && (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                      <path d="M2 6l2.5 2.5L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </div>
+                In Stock
+              </button>
+            </div>
 
             {/* Tiles grid */}
             {loading ? (

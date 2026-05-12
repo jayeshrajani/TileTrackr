@@ -628,17 +628,9 @@ function AddTransactionModal({ initialType, onClose, onCreated }) {
     let quantityInBoxes = Number(form.quantity)
     let notesWithUnit = form.notes.trim()
     
-    console.log('Before calculation:', { 
-      transaction_type: form.transaction_type, 
-      sell_unit: form.sell_unit, 
-      quantity: form.quantity,
-      quantityInBoxes 
-    })
-    
     if (form.transaction_type === 'sell' && form.sell_unit === 'piece') {
       const piecesPerBox = getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box)
       quantityInBoxes = Number(form.quantity) / piecesPerBox
-      console.log('Selling by piece:', { piecesPerBox, quantityInBoxes })
       // Add note about piece sale
       const pieceNote = `Sold ${Number(form.quantity)} pieces (${quantityInBoxes.toFixed(2)} boxes)`
       notesWithUnit = notesWithUnit ? `${pieceNote}. ${notesWithUnit}` : pieceNote
@@ -672,14 +664,6 @@ function AddTransactionModal({ initialType, onClose, onCreated }) {
     const inventoryChange = form.transaction_type === 'buy' 
       ? Number(form.quantity) 
       : -quantityInBoxes
-
-    console.log('Inventory update:', { 
-      transaction_type: form.transaction_type,
-      inventoryChange,
-      quantityInBoxes,
-      godown_id: form.godown_id,
-      batch_code: form.batch_code.trim()
-    })
 
     await addInventoryEntry({
       tile_id: productId,

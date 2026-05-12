@@ -557,14 +557,6 @@ export async function addInventoryEntry(data) {
       price = 0,
     } = data
 
-    console.log('addInventoryEntry called with:', {
-      productId,
-      batchNumber,
-      godownId,
-      stockQuantity,
-      locationInGodown
-    })
-
     if (!productId || !batchNumber || !godownId || stockQuantity === null || stockQuantity === undefined) {
       console.error('addInventoryEntry: missing required fields', data)
       return false
@@ -579,19 +571,11 @@ export async function addInventoryEntry(data) {
       .eq('batch_number', batchNumber)
       .maybeSingle()
 
-    console.log('Existing inventory entry:', existing)
-
     if (checkError) throw checkError
 
     if (existing) {
       // Update existing
       const newQuantity = existing.stock_quantity + stockQuantity
-      
-      console.log('Updating stock:', {
-        existing: existing.stock_quantity,
-        change: stockQuantity,
-        new: newQuantity
-      })
       
       // Prevent negative stock
       if (newQuantity < 0) {
