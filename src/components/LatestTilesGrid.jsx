@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ExpandableTileCard from './ExpandableTileCard'
 import { getTileInventory } from '../services/inventoryService'
+import { formatQty } from '../utils/formatQty'
 
 function getGradeTagClass(grade) {
   const normalizedGrade = grade?.trim().toLowerCase()
@@ -146,7 +147,7 @@ function LatestTilesGrid({ tiles, onToggleFavorite, isAdminLoggedIn, onQuickAdd,
               <p className="mt-1 text-xs text-slate-500">Pack: {packageCount} pcs/box</p>
             )}
             <p className="mt-1.5 text-xs font-semibold text-indigo-600">
-              Stock: {tile.totalBoxes || 0} {tile.unit || 'box'}{(tile.totalBoxes || 0) !== 1 ? 'es' : ''}
+              Stock: {formatQty(tile.totalBoxes || 0, packageCount, tile.unit || 'box')}
             </p>
           </div>
 

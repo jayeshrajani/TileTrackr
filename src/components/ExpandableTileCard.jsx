@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { updateInventoryEntry, updateProduct, getProductFieldOptions, deleteProduct, getAllCategories, createCategory, getAllTiles } from '../services/inventoryService'
+import { formatQty } from '../utils/formatQty'
 
 const parsePackageCount = (value) => {
   if (value == null || value === '') return null
@@ -159,7 +160,7 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
         {[
           { label: 'Size', value: tile.size },
-          { label: 'Total Stock', value: `${totalBoxes} ${unitPlural}` },
+          { label: 'Total Stock', value: formatQty(totalBoxes, parsePackageCount(tile.package_spec ?? tile.pieces_per_box), unit) },
           parsePackageCount(tile.package_spec ?? tile.pieces_per_box)
             ? { label: 'Pack', value: `${parsePackageCount(tile.package_spec ?? tile.pieces_per_box)} pcs/box` }
             : null,
@@ -323,7 +324,7 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
                           <p className="text-xs font-medium text-slate-500">{row.godown_name}{row.location_in_godown ? ` · ${row.location_in_godown}` : ''}</p>
                           <div className="flex gap-4 mt-1.5">
                             <span className="text-xs text-slate-400">
-                              <span className="font-bold text-slate-800">{row.boxes}</span> {unitPlural}
+                              <span className="font-bold text-slate-800">{formatQty(row.boxes, parsePackageCount(tile.package_spec ?? tile.pieces_per_box), unit)}</span>
                             </span>
                           </div>
                         </div>

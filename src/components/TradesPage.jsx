@@ -1,6 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
-import { getAllTiles, createTransaction, getAllTransactions, addInventoryEntry, getTileInventory, getAllGodowns, getAllCategories, createProduct, getProductFieldOptions } from '../services/inventoryService'
-import { jsPDF } from 'jspdf'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { getAllTiles, createTransaction, getAllTransactions, reverseTransaction, deleteTransaction, createGoodsReturn, addInventoryEntry, getTileInventory, getAllGodowns, getAllCategories, createCategory, createProduct, getProductFieldOptions, getFilterOptions, addFilterOption } from '../services/inventoryService'
+import { formatQty } from '../utils/formatQty'
+
+function getPackageCount(value, fallback) {
+  const source = value ?? fallback
+  if (source == null || source === '') return null
+  if (typeof source === 'number') return Number.isFinite(source) && source > 0 ? Math.round(source) : null
+  const match = String(source).match(/\d+/)
+  if (!match) return null
+  const parsed = Number(match[0])
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null
+}
 
 function getMappedInventoryRows(snapshot) {
   return (snapshot?.batches || [])
@@ -9,22 +19,10 @@ function getMappedInventoryRows(snapshot) {
       batch_code: batch.batch_code,
     })))
     .filter((row) => Number(row.boxes) > 0)
-    .sort((left, right) => {
-      if (right.boxes !== left.boxes) return right.boxes - left.boxes
-      return (left.batch_code || '').localeCompare(right.batch_code || '')
+    .sort((a, b) => {
+      if (b.boxes !== a.boxes) return b.boxes - a.boxes
+      return (a.batch_code || '').localeCompare(b.batch_code || '')
     })
-}
-
-function getPackageCount(value, fallback) {
-  const source = value ?? fallback
-  if (source == null || source === '') return null
-  if (typeof source === 'number') {
-    return Number.isFinite(source) && source > 0 ? Math.round(source) : null
-  }
-  const match = String(source).match(/\d+/)
-  if (!match) return null
-  const parsed = Number(match[0])
-  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null
 }
 
 function TradesPage({ onTransactionCreated }) {
@@ -32,8 +30,17 @@ function TradesPage({ onTransactionCreated }) {
   const [loading, setLoading] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
   const [modalType, setModalType] = useState('buy')
-  const [showDatePicker, setShowDatePicker] = useState(false)
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [reverseConfirm, setReverseConfirm] = useState(null)
+  const [reversing, setReversing] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [deleteInput, setDeleteInput] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [returnModal, setReturnModal] = useState(null)
+  const [returnForm, setReturnForm] = useState({ quantity: '', condition: 'good', reason: '' })
+  const [returning, setReturning] = useState(false)
+  const [returnError, setReturnError] = useState('')
+  const ITEMS_PER_PAGE = 10
 
   const loadTransactions = async () => {
     setLoading(true)
@@ -42,17 +49,12 @@ function TradesPage({ onTransactionCreated }) {
     setLoading(false)
   }
 
-  useEffect(() => {
-    loadTransactions()
-  }, [])
+  useEffect(() => { loadTransactions() }, [])
 
   const handleTransactionCreated = () => {
     setShowAddModal(false)
     loadTransactions()
-    // Refresh parent data (home page tiles with updated stock)
-    if (onTransactionCreated) {
-      onTransactionCreated()
-    }
+    if (onTransactionCreated) onTransactionCreated()
   }
 
   const openModal = (type) => {
@@ -60,161 +62,69 @@ function TradesPage({ onTransactionCreated }) {
     setShowAddModal(true)
   }
 
-  const generateDailyReport = (date) => {
-    const reportDate = new Date(date)
-    const dateStr = reportDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-    
-    // Filter transactions for selected date
-    const dailyTransactions = transactions.filter(txn => {
-      const txnDate = new Date(txn.created_at)
-      return txnDate.toDateString() === reportDate.toDateString()
-    })
-
-    if (dailyTransactions.length === 0) {
-      alert(`No transactions found for ${dateStr}`)
-      return
+  const handleReverse = async () => {
+    if (!reverseConfirm) return
+    setReversing(true)
+    const ok = await reverseTransaction(reverseConfirm)
+    setReversing(false)
+    setReverseConfirm(null)
+    if (ok) {
+      loadTransactions()
+      if (onTransactionCreated) onTransactionCreated()
     }
+  }
 
-    // Create PDF
-    const doc = new jsPDF()
-    const pageWidth = doc.internal.pageSize.getWidth()
-    const pageHeight = doc.internal.pageSize.getHeight()
-    let yPos = 20
+  const handleDelete = async () => {
+    if (!deleteConfirm || deleteInput !== 'delete') return
+    setDeleting(true)
+    const ok = await deleteTransaction(deleteConfirm.id)
+    setDeleting(false)
+    setDeleteConfirm(null)
+    setDeleteInput('')
+    if (ok) {
+      loadTransactions()
+      if (onTransactionCreated) onTransactionCreated()
+    }
+  }
 
-    // Header
-    doc.setFontSize(20)
-    doc.setFont(undefined, 'bold')
-    doc.text('TileTrackr - Daily Trade Report', pageWidth / 2, yPos, { align: 'center' })
-    
-    yPos += 10
-    doc.setFontSize(12)
-    doc.setFont(undefined, 'normal')
-    doc.text(dateStr, pageWidth / 2, yPos, { align: 'center' })
-    
-    yPos += 15
-    doc.setDrawColor(200, 200, 200)
-    doc.line(15, yPos, pageWidth - 15, yPos)
-    yPos += 10
+  const openReturnModal = (txn) => {
+    setReturnModal(txn)
+    setReturnForm({ quantity: '', condition: 'good', reason: '' })
+    setReturnError('')
+  }
 
-    // Summary Statistics
-    const buyTransactions = dailyTransactions.filter(t => t.transaction_type === 'buy')
-    const sellTransactions = dailyTransactions.filter(t => t.transaction_type === 'sell')
-    const totalBuyValue = buyTransactions.reduce((sum, t) => sum + (t.total_price || 0), 0)
-    const totalSellValue = sellTransactions.reduce((sum, t) => sum + (t.total_price || 0), 0)
-
-    doc.setFontSize(11)
-    doc.setFont(undefined, 'bold')
-    doc.text('Summary:', 15, yPos)
-    yPos += 7
-    
-    doc.setFont(undefined, 'normal')
-    doc.text(`Total Transactions: ${dailyTransactions.length}`, 15, yPos)
-    yPos += 6
-    doc.text(`Purchases: ${buyTransactions.length} (Rs. ${totalBuyValue.toLocaleString()})`, 15, yPos)
-    yPos += 6
-    doc.text(`Sales: ${sellTransactions.length} (Rs. ${totalSellValue.toLocaleString()})`, 15, yPos)
-    yPos += 6
-    doc.setTextColor(totalSellValue - totalBuyValue >= 0 ? 0 : 255, totalSellValue - totalBuyValue >= 0 ? 150 : 0, 0)
-    doc.text(`Net: Rs. ${(totalSellValue - totalBuyValue).toLocaleString()}`, 15, yPos)
-    doc.setTextColor(0, 0, 0)
-    
-    yPos += 12
-    doc.line(15, yPos, pageWidth - 15, yPos)
-    yPos += 10
-
-    // Transaction Details
-    doc.setFont(undefined, 'bold')
-    doc.text('Transaction Details:', 15, yPos)
-    yPos += 8
-
-    dailyTransactions.forEach((txn, index) => {
-      // Check if we need a new page
-      if (yPos > pageHeight - 30) {
-        doc.addPage()
-        yPos = 20
-      }
-
-      // Transaction header
-      doc.setFontSize(10)
-      doc.setFont(undefined, 'bold')
-      const typeColor = txn.transaction_type === 'buy' ? [16, 185, 129] : [239, 68, 68]
-      doc.setTextColor(...typeColor)
-      doc.text(`${index + 1}. ${txn.transaction_type === 'buy' ? 'PURCHASE' : 'SALE'}`, 15, yPos)
-      doc.setTextColor(0, 0, 0)
-      
-      // Amount
-      if (txn.total_price) {
-        doc.setFont(undefined, 'bold')
-        doc.text(`Rs. ${txn.total_price.toLocaleString()}`, pageWidth - 15, yPos, { align: 'right' })
-      }
-      yPos += 6
-
-      // Product details
-      doc.setFont(undefined, 'normal')
-      doc.setFontSize(9)
-      doc.text(`Product: ${txn.product_name || 'N/A'}`, 20, yPos)
-      yPos += 5
-      if (txn.package_spec) {
-        doc.text(`Package: ${txn.package_spec}`, 20, yPos)
-        yPos += 5
-      }
-      doc.text(`Quantity: ${txn.quantity} ${txn.unit || 'box'}(s)`, 20, yPos)
-      if (txn.unit_price) {
-        doc.text(`@ Rs. ${txn.unit_price}/${txn.unit || 'box'}`, 80, yPos)
-      }
-      yPos += 5
-      
-      // Location details
-      const locationParts = []
-      if (txn.godown_name) locationParts.push(txn.godown_name)
-      if (txn.batch_code) locationParts.push(`Batch: ${txn.batch_code}`)
-      if (txn.location_in_godown) locationParts.push(txn.location_in_godown)
-      if (locationParts.length > 0) {
-        doc.text(`Location: ${locationParts.join(' | ')}`, 20, yPos)
-        yPos += 5
-      }
-      
-      // Party details
-      if (txn.party_name) {
-        doc.text(`${txn.transaction_type === 'buy' ? 'Supplier' : 'Customer'}: ${txn.party_name}`, 20, yPos)
-        yPos += 5
-      }
-      
-      if (txn.invoice_number) {
-        doc.text(`Invoice: ${txn.invoice_number}`, 20, yPos)
-        yPos += 5
-      }
-      
-      if (txn.notes) {
-        doc.setFontSize(8)
-        doc.setTextColor(100, 100, 100)
-        const notesLines = doc.splitTextToSize(`Notes: ${txn.notes}`, pageWidth - 40)
-        doc.text(notesLines, 20, yPos)
-        yPos += notesLines.length * 4
-        doc.setTextColor(0, 0, 0)
-        doc.setFontSize(9)
-      }
-      
-      yPos += 3
-      doc.setDrawColor(230, 230, 230)
-      doc.line(15, yPos, pageWidth - 15, yPos)
-      yPos += 7
+  const handleReturn = async () => {
+    if (!returnModal) return
+    const qty = Number(returnForm.quantity)
+    if (!qty || qty <= 0) { setReturnError('"Return Quantity" is required. Please enter the number of boxes being returned.'); return }
+    if (qty > returnModal.quantity) { setReturnError(`"Return Quantity" exceeds the sold quantity. Maximum is ${returnModal.quantity}.`); return }
+    setReturning(true)
+    setReturnError('')
+    const ok = await createGoodsReturn({
+      originalTxn: returnModal,
+      quantity: qty,
+      condition: returnForm.condition,
+      reason: returnForm.reason.trim(),
+      godown_id: returnModal.godown_id,
+      batch_code: returnModal.batch_code,
+      location_in_godown: returnModal.location_in_godown,
     })
-
-    // Footer on last page
-    doc.setFontSize(8)
-    doc.setTextColor(150, 150, 150)
-    doc.text(`Generated on ${new Date().toLocaleString()}`, pageWidth / 2, pageHeight - 10, { align: 'center' })
-
-    // Save PDF
-    const fileName = `TileTrackr_Daily_Report_${date}.pdf`
-    doc.save(fileName)
-    setShowDatePicker(false)
+    setReturning(false)
+    if (ok) {
+      setReturnModal(null)
+      loadTransactions()
+      if (onTransactionCreated) onTransactionCreated()
+    } else {
+      setReturnError('Failed to process return. Try again.')
+    }
   }
 
-  const handleDownloadReport = () => {
-    generateDailyReport(selectedDate)
-  }
+  // Pagination
+  const totalPages = Math.ceil(transactions.length / ITEMS_PER_PAGE)
+  const paginatedTransactions = transactions.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  )
 
   return (
     <div className="space-y-6">
@@ -226,6 +136,150 @@ function TradesPage({ onTransactionCreated }) {
         />
       )}
 
+      {/* Reverse Confirmation Modal */}
+      {reverseConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => !reversing && setReverseConfirm(null)} />
+          <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-lg font-bold text-slate-900">Reverse Transaction?</h3>
+            <p className="text-sm text-slate-600">
+              This will mark the transaction as reversed and {reverseConfirm.transaction_type === 'buy' ? 'subtract' : 'add back'}{' '}
+              <span className="font-semibold">{reverseConfirm.quantity} {reverseConfirm.unit || 'boxes'}</span> of{' '}
+              <span className="font-semibold">{reverseConfirm.product_name}</span>.
+            </p>
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              This action cannot be undone.
+            </p>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setReverseConfirm(null)} disabled={reversing} className="btn-secondary flex-1">Cancel</button>
+              <button type="button" onClick={handleReverse} disabled={reversing} className="flex-1 px-4 py-2.5 rounded-xl bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 transition-colors disabled:opacity-50">
+                {reversing ? 'Reversing…' : 'Yes, Reverse'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => !deleting && (setDeleteConfirm(null), setDeleteInput(''))} />
+          <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-lg font-bold text-red-600">Delete Transaction</h3>
+            <p className="text-sm text-slate-600">
+              This will <span className="font-semibold text-red-600">permanently delete</span> the {deleteConfirm.transaction_type} of{' '}
+              <span className="font-semibold">{deleteConfirm.quantity} {deleteConfirm.unit || 'boxes'}</span> of{' '}
+              <span className="font-semibold">{deleteConfirm.product_name}</span>.
+            </p>
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              This will NOT adjust inventory. Use "Reverse" if you need to undo the stock change. This action is irreversible.
+            </p>
+            <div>
+              <label className="label">Type <span className="font-bold text-red-600">delete</span> to confirm</label>
+              <input
+                type="text"
+                value={deleteInput}
+                onChange={(e) => setDeleteInput(e.target.value)}
+                placeholder="delete"
+                className="input-modern"
+                autoComplete="off"
+                spellCheck="false"
+              />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => { setDeleteConfirm(null); setDeleteInput('') }} disabled={deleting} className="btn-secondary flex-1">Cancel</button>
+              <button type="button" onClick={handleDelete} disabled={deleting || deleteInput !== 'delete'} className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                {deleting ? 'Deleting…' : 'Delete Forever'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Goods Return Modal */}
+      {returnModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => !returning && setReturnModal(null)} />
+          <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-md p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 4 1 10 7 10"/>
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Goods Return</h3>
+                <p className="text-xs text-slate-400">Customer returning goods</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 border border-slate-100 px-4 py-3 space-y-1">
+              <p className="text-sm font-semibold text-slate-800">{returnModal.product_name}</p>
+              <div className="flex flex-wrap gap-x-4 text-xs text-slate-500">
+                <span>Sold: <span className="font-semibold text-slate-700">{returnModal.quantity} {returnModal.unit || 'boxes'}</span></span>
+                {returnModal.party_name && <span>To: {returnModal.party_name}</span>}
+                {returnModal.batch_code && <span>Batch: {returnModal.batch_code}</span>}
+              </div>
+            </div>
+
+            <div>
+              <label className="label">Return Quantity <span className="text-red-500">*</span></label>
+              <input
+                type="number"
+                min="0.01"
+                max={returnModal.quantity}
+                step="0.01"
+                value={returnForm.quantity}
+                onChange={(e) => setReturnForm(f => ({ ...f, quantity: e.target.value }))}
+                placeholder={`Max ${returnModal.quantity}`}
+                className="input-modern"
+              />
+            </div>
+
+            <div>
+              <label className="label">Condition</label>
+              <div className="flex gap-2">
+                {['good', 'damaged', 'defective'].map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setReturnForm(f => ({ ...f, condition: c }))}
+                    className={`flex-1 py-2 rounded-xl text-xs font-medium capitalize border transition-all ${
+                      returnForm.condition === c
+                        ? c === 'good' ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : c === 'damaged' ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-red-50 border-red-300 text-red-700'
+                        : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="label">Reason (optional)</label>
+              <input
+                type="text"
+                value={returnForm.reason}
+                onChange={(e) => setReturnForm(f => ({ ...f, reason: e.target.value }))}
+                placeholder="e.g. Wrong size, Broken tiles"
+                className="input-modern"
+              />
+            </div>
+
+            {returnError && <p className="text-xs font-medium text-red-500">{returnError}</p>}
+
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setReturnModal(null)} disabled={returning} className="btn-secondary flex-1">Cancel</button>
+              <button type="button" onClick={handleReturn} disabled={returning || !returnForm.quantity} className="flex-1 px-4 py-2.5 rounded-xl bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 transition-colors disabled:opacity-50">
+                {returning ? 'Processing…' : 'Process Return'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500 mb-1.5">Admin</p>
@@ -233,91 +287,16 @@ function TradesPage({ onTransactionCreated }) {
           <p className="text-sm text-slate-500 mt-1">Record buy/sell transactions and manage stock automatically.</p>
         </div>
         <div className="flex gap-2 flex-shrink-0 mt-1">
-          <button
-            type="button"
-            onClick={() => setShowDatePicker(!showDatePicker)}
-            className="px-4 py-2 rounded-xl bg-indigo-500 text-white text-sm font-semibold shadow-apple-xs hover:bg-indigo-600 transition-all duration-200 flex items-center gap-2"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            Report
-          </button>
-          <button
-            type="button"
-            onClick={() => openModal('buy')}
-            className="px-4 py-2 rounded-xl bg-emerald-500 text-white text-sm font-semibold shadow-apple-xs hover:bg-emerald-600 transition-all duration-200 flex items-center gap-2"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
+          <button type="button" onClick={() => openModal('buy')} className="px-4 py-2 rounded-xl bg-emerald-500 text-white text-sm font-semibold shadow-apple-xs hover:bg-emerald-600 transition-all duration-200 flex items-center gap-2">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
             Buy
           </button>
-          <button
-            type="button"
-            onClick={() => openModal('sell')}
-            className="px-4 py-2 rounded-xl bg-red-500 text-white text-sm font-semibold shadow-apple-xs hover:bg-red-600 transition-all duration-200 flex items-center gap-2"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-              <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
+          <button type="button" onClick={() => openModal('sell')} className="px-4 py-2 rounded-xl bg-red-500 text-white text-sm font-semibold shadow-apple-xs hover:bg-red-600 transition-all duration-200 flex items-center gap-2">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
             Sell
           </button>
         </div>
       </div>
-
-      {/* Date Picker Modal for Report */}
-      {showDatePicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowDatePicker(false)}>
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-          <div className="relative bg-white rounded-2xl shadow-apple-modal p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-slate-900">Download Daily Report</h3>
-              <button
-                type="button"
-                onClick={() => setShowDatePicker(false)}
-                className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <path d="M1 1l8 8M9 1L1 9" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round"/>
-                </svg>
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="label">Select Date</label>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  max={new Date().toISOString().split('T')[0]}
-                  className="input-modern"
-                />
-              </div>
-              
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowDatePicker(false)}
-                  className="btn-secondary flex-1"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDownloadReport}
-                  className="btn-primary flex-1"
-                >
-                  Download PDF
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-32">
@@ -329,52 +308,81 @@ function TradesPage({ onTransactionCreated }) {
       ) : transactions.length === 0 ? (
         <div className="card py-16 text-center">
           <p className="text-sm font-semibold text-slate-600">No transactions yet</p>
-          <p className="text-xs text-slate-400 mt-1">Click "New Transaction" to record your first buy or sell</p>
+          <p className="text-xs text-slate-400 mt-1">Click Buy or Sell to record your first transaction</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {transactions.map((txn) => (
-            <div key={txn.id} className="card p-5 hover:shadow-apple-sm transition-shadow">
+          {paginatedTransactions.map((txn) => (
+            <div key={txn.id} className={`card p-5 hover:shadow-apple-sm transition-shadow ${txn.is_reversed ? 'opacity-60 border-dashed' : ''}`}>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
                     <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                      txn.transaction_type === 'buy' 
+                      txn.transaction_type === 'buy'
                         ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : txn.transaction_type === 'return_in'
+                        ? 'bg-blue-50 text-blue-700 border border-blue-200'
                         : 'bg-red-50 text-red-700 border border-red-200'
                     }`}>
-                      {txn.transaction_type === 'buy' ? '↓ Buy' : '↑ Sell'}
+                      {txn.transaction_type === 'buy' ? '↓ Buy' : txn.transaction_type === 'return_in' ? '↩ Return' : '↑ Sell'}
                     </span>
+                    {txn.is_reversed && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200">REVERSED</span>
+                    )}
                     <span className="text-xs text-slate-400">
                       {new Date(txn.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {' · '}
+                      {new Date(txn.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
                   <p className="text-sm font-semibold text-slate-900">{txn.product_name}</p>
-                  {txn.package_spec && (
-                    <p className="text-xs text-slate-500 mt-1">Package: {txn.package_spec}</p>
-                  )}
                   {txn.party_name && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      {txn.transaction_type === 'buy' ? 'From' : 'To'}: {txn.party_name}
-                    </p>
+                    <p className="text-xs text-slate-500 mt-1">{txn.transaction_type === 'buy' ? 'From' : 'To'}: {txn.party_name}</p>
                   )}
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-400">
-                    <span><span className="font-semibold text-slate-700">{txn.quantity}</span> {txn.unit}s</span>
+                    <span><span className="font-semibold text-slate-700">{txn.quantity}</span> {Number(txn.quantity) === 1 ? txn.unit : txn.unit === 'box' ? 'boxes' : (txn.unit + 's')}</span>
                     {txn.godown_name && <span>• {txn.godown_name}</span>}
                     {txn.location_in_godown && <span>• {txn.location_in_godown}</span>}
                     {txn.batch_code && <span>• Batch: {txn.batch_code}</span>}
+                    {txn.invoice_number && <span>• Inv: {txn.invoice_number}</span>}
                   </div>
                 </div>
-                <div className="text-right flex-shrink-0">
+                <div className="text-right flex-shrink-0 flex flex-col items-end gap-2">
                   {txn.total_price ? (
                     <>
                       <p className="text-lg font-bold text-slate-900">₹{txn.total_price.toLocaleString()}</p>
-                      {txn.unit_price && (
-                        <p className="text-xs text-slate-400 mt-0.5">@ ₹{txn.unit_price}/{txn.unit}</p>
-                      )}
+                      {txn.unit_price && <p className="text-xs text-slate-400">@ ₹{txn.unit_price}/{txn.unit}</p>}
                     </>
                   ) : (
                     <p className="text-sm text-slate-400">No price</p>
+                  )}
+                  {!txn.is_reversed ? (
+                    <div className="flex flex-col items-end gap-1">
+                      {txn.transaction_type === 'sell' && (
+                        <button
+                          type="button"
+                          onClick={() => openReturnModal(txn)}
+                          className="text-[10px] font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded-lg transition-colors"
+                        >
+                          Goods Return
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setReverseConfirm(txn)}
+                        className="text-[10px] font-semibold text-amber-600 hover:text-amber-700 hover:bg-amber-50 px-2 py-1 rounded-lg transition-colors"
+                      >
+                        Reverse
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setDeleteConfirm(txn)}
+                      className="text-[10px] font-semibold text-red-500 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors"
+                    >
+                      Delete
+                    </button>
                   )}
                 </div>
               </div>
@@ -383,34 +391,133 @@ function TradesPage({ onTransactionCreated }) {
                   <p className="text-xs text-slate-500">{txn.notes}</p>
                 </div>
               )}
-              {txn.invoice_number && (
-                <div className="mt-2">
-                  <span className="inline-flex items-center text-xs text-slate-400">
-                    Invoice: <span className="font-mono ml-1 text-slate-600">{txn.invoice_number}</span>
-                  </span>
-                </div>
-              )}
             </div>
           ))}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-4">
+              <button type="button" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-40 transition-colors">← Prev</button>
+              <span className="text-xs text-slate-500 tabular-nums">Page {currentPage} of {totalPages}</span>
+              <button type="button" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-40 transition-colors">Next →</button>
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// COMBO INPUT — Type to filter existing options, or add new ones inline
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function ComboInput({ value, onChange, options = [], placeholder, onAdd }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState(value || '')
+  const ref = useRef(null)
+
+  useEffect(() => { setSearch(value || '') }, [value])
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filtered = options.filter((o) => o.toLowerCase().includes(search.toLowerCase().trim()))
+  const exactMatch = options.some((o) => o.toLowerCase() === search.toLowerCase().trim())
+  const showAdd = search.trim() && !exactMatch && typeof onAdd === 'function'
+
+  const handleSelect = (opt) => {
+    onChange(opt)
+    setSearch(opt)
+    setOpen(false)
+  }
+
+  const handleAdd = async () => {
+    const trimmed = search.trim()
+    if (!trimmed) return
+    if (onAdd) await onAdd(trimmed)
+    onChange(trimmed)
+    setOpen(false)
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => { setSearch(e.target.value); onChange(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder}
+        className="input-modern"
+        autoComplete="off"
+      />
+      {open && (filtered.length > 0 || showAdd) && (
+        <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-apple-sm max-h-[160px] overflow-y-auto">
+          {filtered.slice(0, 20).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => handleSelect(opt)}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0 ${opt === value ? 'bg-indigo-50 font-medium' : 'text-slate-700'}`}
+            >
+              {opt}
+            </button>
+          ))}
+          {showAdd && (
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="w-full text-left px-3 py-2 text-sm text-indigo-600 font-medium hover:bg-indigo-50 border-t border-slate-100 flex items-center gap-1.5"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+              Add "{search.trim()}"
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ADD TRANSACTION MODAL — Multi-product cart, searchable product, multi-batch sell
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 function AddTransactionModal({ initialType, onClose, onCreated }) {
   const [products, setProducts] = useState([])
   const [godowns, setGodowns] = useState([])
   const [categories, setCategories] = useState([])
-  const [fieldOptions, setFieldOptions] = useState({ brands: [], sizes: [], finishes: [], grades: [], units: [], packageSpecs: [] })
+  const [filterOptions, setFilterOptions] = useState({ brands: [], sizes: [], finishes: [], grades: [] })
   const [inventorySnapshot, setInventorySnapshot] = useState(null)
   const [inventoryLoading, setInventoryLoading] = useState(false)
-  const [productMode, setProductMode] = useState('existing') // 'existing' or 'new'
+
+  // Product search
+  const [productSearch, setProductSearch] = useState('')
+  const [productDropdownOpen, setProductDropdownOpen] = useState(false)
+  const productSearchRef = useRef(null)
+  const dropdownRef = useRef(null)
+
+  // Product mode: existing vs new (new only available for buy)
+  const [productMode, setProductMode] = useState('existing')
+
+  // Sell unit (box vs piece)
+  const [sellUnit, setSellUnit] = useState('box')
+
+  // Multi-batch allocation for sell
+  const [batchAllocations, setBatchAllocations] = useState({})
+
+  // Cart system
+  const [cartItems, setCartItems] = useState([])
+  const [addingToCart, setAddingToCart] = useState(false)
+
   const [form, setForm] = useState({
     product_id: '',
     transaction_type: initialType || 'buy',
     quantity: '',
-    sell_unit: 'box', // 'box' or 'piece'
+    sell_unit: 'box',
     unit_price: '',
     total_price: '',
     party_name: '',
@@ -436,77 +543,78 @@ function AddTransactionModal({ initialType, onClose, onCreated }) {
     getAllTiles().then(setProducts)
     getAllGodowns().then(setGodowns)
     getAllCategories().then(setCategories)
-    getProductFieldOptions().then(setFieldOptions)
+    // Merge filter_options table + unique values from products table
+    Promise.all([getFilterOptions(), getProductFieldOptions()]).then(([filterOpts, productOpts]) => {
+      const merge = (filterArr, productArr) => {
+        const filterValues = (filterArr || []).map(o => typeof o === 'string' ? o : o.value).filter(Boolean)
+        const productValues = (productArr || []).filter(Boolean)
+        return [...new Set([...filterValues, ...productValues])].sort()
+      }
+      setFilterOptions({
+        brands: merge(filterOpts.brands, productOpts.brands),
+        sizes: merge(filterOpts.sizes, productOpts.sizes),
+        finishes: merge(filterOpts.finishes, productOpts.finishes),
+        grades: merge(filterOpts.grades, productOpts.grades),
+      })
+    })
+  }, [])
+
+  // Close product dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setProductDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
   }, [])
 
   const selectedProduct = products.find(p => p.id === form.product_id)
+
   const mappedInventoryRows = useMemo(
     () => getMappedInventoryRows(inventorySnapshot),
     [inventorySnapshot]
   )
-  
-  // Find the selected batch/location row based on form values
-  const selectedInventoryRow = useMemo(() => {
-    if (!form.godown_id || !form.batch_code) return null
-    return mappedInventoryRows.find(
-      row => row.godown_id === form.godown_id && row.batch_code === form.batch_code
-    ) || null
-  }, [mappedInventoryRows, form.godown_id, form.batch_code])
-  
-  const currentStock = selectedInventoryRow?.boxes || 0
-  const totalStock = inventorySnapshot?.totalBoxes || 0
 
+  // Filter products by search
+  const filteredProducts = useMemo(() => {
+    const q = productSearch.toLowerCase().trim()
+    if (!q) return products
+    return products.filter(p => {
+      const searchable = [p.product_name, p.brand, p.size, p.finish, p.grade].filter(Boolean).join(' ').toLowerCase()
+      return searchable.includes(q)
+    })
+  }, [products, productSearch])
+
+  // Load inventory when product selected
   useEffect(() => {
     if (!form.product_id) {
       setInventorySnapshot(null)
-      setForm((current) => ({
-        ...current,
-        godown_id: '',
-        batch_code: '',
-        location_in_godown: '',
-        quantity: '',
-      }))
+      setBatchAllocations({})
       return
     }
-
     let cancelled = false
-
-    const loadInventory = async () => {
+    const load = async () => {
       setInventoryLoading(true)
       const snapshot = await getTileInventory(form.product_id)
       if (cancelled) return
-
       setInventorySnapshot(snapshot)
-      
-      // For SELL transactions, pre-select the first batch with stock
-      // For BUY transactions, leave empty so user can choose
-      if (form.transaction_type === 'sell') {
-        const preferredRow = getMappedInventoryRows(snapshot)[0] || null
-        setForm((current) => ({
-          ...current,
-          godown_id: preferredRow?.godown_id || '',
-          batch_code: preferredRow?.batch_code || '',
-          location_in_godown: preferredRow?.location_in_godown || '',
-        }))
-      } else {
-        // For buy, let user choose batch/godown
-        setForm((current) => ({
-          ...current,
-          godown_id: '',
-          batch_code: '',
-          location_in_godown: '',
-        }))
+      setBatchAllocations({})
+
+      // For buy, pre-fill first godown/batch
+      if (form.transaction_type === 'buy') {
+        const rows = getMappedInventoryRows(snapshot)
+        const firstRow = rows[0]
+        if (firstRow) {
+          setForm(f => ({ ...f, godown_id: firstRow.godown_id, batch_code: firstRow.batch_code, location_in_godown: firstRow.location_in_godown || '' }))
+        }
       }
-      
       setInventoryLoading(false)
     }
-
-    loadInventory()
-
-    return () => {
-      cancelled = true
-    }
-  }, [form.product_id, form.transaction_type])
+    load()
+    return () => { cancelled = true }
+  }, [form.product_id])
 
   // Auto-calculate total price
   useEffect(() => {
@@ -516,40 +624,72 @@ function AddTransactionModal({ initialType, onClose, onCreated }) {
     }
   }, [form.quantity, form.unit_price])
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  // Select product from search
+  const selectProduct = (product) => {
+    setForm(f => ({ ...f, product_id: product.id }))
+    setProductSearch(product.product_name + (product.size ? ` · ${product.size}` : ''))
+    setProductDropdownOpen(false)
+  }
+
+  // Reset product fields
+  const resetProductFields = () => {
+    setForm(f => ({
+      ...f,
+      product_id: '',
+      quantity: '',
+      sell_unit: 'box',
+      unit_price: '',
+      total_price: '',
+      godown_id: '',
+      batch_code: '',
+      location_in_godown: '',
+      product_name: '',
+      brand: '',
+      size: '',
+      finish: '',
+      grade: '',
+      unit: 'box',
+      package_spec: '',
+      category_id: '',
+    }))
+    setProductSearch('')
+    setBatchAllocations({})
+    setInventorySnapshot(null)
+    setProductMode('existing')
+    setSellUnit('box')
+  }
+
+  // Validate & add current product to cart (returns the item or null)
+  const handleAddToCart = async () => {
     setError('')
+    setAddingToCart(true)
 
     let productId = form.product_id
+    let productName = selectedProduct?.product_name || form.product_name
+    let productUnit = selectedProduct?.unit || form.unit || 'box'
     const normalizedPackageCount = getPackageCount(form.package_spec)
 
-    // For new product mode (only available for BUY), create the product first
+    // New product mode (BUY only)
     if (productMode === 'new' && form.transaction_type === 'buy') {
-      if (!form.product_name.trim()) { setError('Please enter product name'); return }
-      if (!form.unit.trim()) { setError('Please select a unit'); return }
+      if (!form.product_name.trim()) { setError('"Product Name" is required. Please fill this field.'); setAddingToCart(false); return null }
+      if (!form.unit.trim()) { setError('"Unit" is required. Please select a unit for this product.'); setAddingToCart(false); return null }
 
-      // Check for duplicates before creating
-      const normalized = (value) => (value || '').trim().toLowerCase()
-      const normalizedCategoryId = form.category_id || null
-      
-      const duplicateProduct = products.find((product) => (
-        normalized(product.product_name) === normalized(form.product_name) &&
-        normalized(product.brand) === normalized(form.brand) &&
-        normalized(product.size) === normalized(form.size) &&
-        normalized(product.finish) === normalized(form.finish) &&
-        normalized(product.grade) === normalized(form.grade) &&
-        normalized(product.unit) === normalized(form.unit) &&
-        getPackageCount(product.package_spec, product.pieces_per_box) === normalizedPackageCount &&
-        (product.category_id || null) === normalizedCategoryId
+      const normalized = (v) => (v || '').trim().toLowerCase()
+      const duplicateProduct = products.find((p) => (
+        normalized(p.product_name) === normalized(form.product_name) &&
+        normalized(p.brand) === normalized(form.brand) &&
+        normalized(p.size) === normalized(form.size) &&
+        normalized(p.finish) === normalized(form.finish) &&
+        normalized(p.grade) === normalized(form.grade) &&
+        normalized(p.unit) === normalized(form.unit)
       ))
 
       if (duplicateProduct) {
-        setError('This product already exists. Please select it from "Existing Product" or modify the details to make it unique.')
-        return
+        setError('This product already exists. Select from "Existing Product".')
+        setAddingToCart(false)
+        return null
       }
 
-      setSaving(true)
-      
       const newProduct = await createProduct({
         product_name: form.product_name.trim(),
         brand: form.brand || null,
@@ -557,122 +697,197 @@ function AddTransactionModal({ initialType, onClose, onCreated }) {
         finish: form.finish || null,
         grade: form.grade || null,
         unit: form.unit || 'box',
-        package_spec: normalizedPackageCount != null ? String(normalizedPackageCount) : null,
-        pieces_per_box: normalizedPackageCount,
         category_id: form.category_id || null,
+        package_spec: form.package_spec || '1',
       })
 
       if (!newProduct) {
-        setSaving(false)
-        setError('Failed to create product. Please try again.')
-        return
+        setError('Failed to create product.')
+        setAddingToCart(false)
+        return null
       }
 
       productId = newProduct.id
-      setSaving(false)
+      productName = form.product_name.trim()
+      productUnit = form.unit
+      const updatedProducts = await getAllTiles()
+      setProducts(updatedProducts)
     } else {
-      // Existing product mode validation
-      if (!productId) { setError('Please select a product'); return }
+      if (!productId) { setError('"Product" is required. Please search and select a product.'); setAddingToCart(false); return null }
     }
 
-    if (!form.quantity || Number(form.quantity) <= 0) { setError('Please enter a valid quantity'); return }
-    
-    // For SELL, validate batch/location is selected and has enough stock
+    if (!form.quantity || Number(form.quantity) <= 0) { setError('"Quantity" is required. Please enter a quantity greater than 0.'); setAddingToCart(false); return null }
+
+    // SELL validations
     if (form.transaction_type === 'sell') {
-      if (!form.godown_id || !form.batch_code) {
-        setError('Please select a batch/location to sell from.')
-        return
-      }
-      if (!selectedInventoryRow) {
-        setError('Selected batch/location not found.')
-        return
-      }
-      
-      // Calculate quantity in boxes for validation
-      let quantityInBoxes = Number(form.quantity)
-      if (form.sell_unit === 'piece') {
-        const piecesPerBox = getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box)
-        if (!piecesPerBox || piecesPerBox <= 0) {
-          setError('Cannot sell by piece - package specification not set for this product.')
-          return
+      const allocEntries = Object.entries(batchAllocations).filter(([, v]) => Number(v) > 0)
+      if (allocEntries.length === 0) { setError('"Batch Allocation" is required. Please allocate quantity from at least one batch below.'); setAddingToCart(false); return null }
+
+      const piecesPerBox = getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box)
+      for (const [key, qty] of allocEntries) {
+        const row = mappedInventoryRows.find(r => `${r.godown_id}|${r.batch_code}` === key)
+        if (!row) { setError('A selected batch was not found.'); setAddingToCart(false); return null }
+        let qtyInBoxes = Number(qty)
+        if (sellUnit === 'piece') {
+          if (!piecesPerBox) { setError('Cannot sell by piece - no package spec.'); setAddingToCart(false); return null }
+          qtyInBoxes = Number(qty) / piecesPerBox
         }
-        quantityInBoxes = Number(form.quantity) / piecesPerBox
+        if (qtyInBoxes > row.boxes) {
+          setError(`Cannot sell ${qty} from ${row.godown_name} · ${row.batch_code}. Only ${row.boxes} boxes available.`)
+          setAddingToCart(false)
+          return null
+        }
       }
-      
-      if (quantityInBoxes > currentStock) {
-        const displayUnit = form.sell_unit === 'piece' ? 'pieces' : (selectedProduct?.unit || 'boxes')
-        const availableDisplay = form.sell_unit === 'piece' 
-          ? currentStock * getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box)
-          : currentStock
-        setError(`Cannot sell ${Number(form.quantity)} ${displayUnit}. Only ${availableDisplay} ${displayUnit} available in this batch.`)
-        return
+
+      const totalAllocated = allocEntries.reduce((s, [, v]) => s + Number(v), 0)
+      if (totalAllocated !== Number(form.quantity)) {
+        setError(`Total allocated (${totalAllocated}) doesn't match quantity (${form.quantity}).`)
+        setAddingToCart(false)
+        return null
       }
     }
-    
-    // For BUY, ensure batch/godown is specified
+
+    // BUY validations
     if (form.transaction_type === 'buy') {
-      if (!form.godown_id || !form.batch_code) {
-        setError('Please specify godown and batch code for the purchase.')
-        return
-      }
+      if (!form.godown_id && !form.batch_code) { setError('"Godown" and "Batch Code" are required. Please fill both fields.'); setAddingToCart(false); return null }
+      if (!form.godown_id) { setError('"Godown" is required. Please select a godown.'); setAddingToCart(false); return null }
+      if (!form.batch_code) { setError('"Batch Code" is required. Please enter a batch code.'); setAddingToCart(false); return null }
+    }
+
+    // Build cart item
+    const cartItem = {
+      id: Date.now() + Math.random(),
+      product_id: productId,
+      product_name: productName,
+      product_unit: productUnit,
+      product_size: selectedProduct?.size || form.size || '',
+      quantity: Number(form.quantity),
+      sell_unit: sellUnit,
+      unit_price: form.unit_price ? Number(form.unit_price) : null,
+      total_price: form.total_price ? Number(form.total_price) : null,
+      godown_id: form.godown_id,
+      batch_code: form.batch_code,
+      location_in_godown: form.location_in_godown,
+      batchAllocations: form.transaction_type === 'sell' ? { ...batchAllocations } : null,
+      mappedRows: form.transaction_type === 'sell' ? [...mappedInventoryRows] : null,
+      package_spec: selectedProduct?.package_spec || (normalizedPackageCount != null ? String(normalizedPackageCount) : null),
+    }
+
+    setCartItems(prev => [...prev, cartItem])
+    resetProductFields()
+    setAddingToCart(false)
+    return cartItem
+  }
+
+  const removeCartItem = (itemId) => {
+    setCartItems(prev => prev.filter(i => i.id !== itemId))
+  }
+
+  // Submit ALL items (auto-adds current product if cart empty)
+  const handleSubmitAll = async () => {
+    setError('')
+
+    let itemsToSubmit = [...cartItems]
+
+    // If cart is empty but product fields filled, auto-add
+    if (itemsToSubmit.length === 0) {
+      const hasProduct = form.product_id || (productMode === 'new' && form.product_name.trim())
+      if (!hasProduct) { setError('No product selected. Please select or add a product before submitting.'); return }
+      const addedItem = await handleAddToCart()
+      if (!addedItem) return
+      itemsToSubmit = [addedItem]
     }
 
     setSaving(true)
 
-    // Get product details for snapshot
-    const productForSnapshot = productMode === 'new' 
-      ? { product_name: form.product_name, unit: form.unit, package_spec: normalizedPackageCount != null ? `${normalizedPackageCount} pcs/box` : null }
-      : selectedProduct
+    for (const item of itemsToSubmit) {
+      let quantityInBoxes = item.quantity
+      let notesForItem = form.notes.trim()
 
-    // Calculate actual quantity in boxes for inventory
-    let quantityInBoxes = Number(form.quantity)
-    let notesWithUnit = form.notes.trim()
-    
-    if (form.transaction_type === 'sell' && form.sell_unit === 'piece') {
-      const piecesPerBox = getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box)
-      quantityInBoxes = Number(form.quantity) / piecesPerBox
-      // Add note about piece sale
-      const pieceNote = `Sold ${Number(form.quantity)} pieces (${quantityInBoxes.toFixed(2)} boxes)`
-      notesWithUnit = notesWithUnit ? `${pieceNote}. ${notesWithUnit}` : pieceNote
+      if (form.transaction_type === 'sell' && item.sell_unit === 'piece') {
+        const piecesPerBox = getPackageCount(item.package_spec)
+        if (piecesPerBox) quantityInBoxes = item.quantity / piecesPerBox
+        const pieceNote = `Sold ${item.quantity} pieces (${quantityInBoxes.toFixed(2)} boxes)`
+        notesForItem = notesForItem ? `${pieceNote}. ${notesForItem}` : pieceNote
+      }
+
+      const allocEntries = item.batchAllocations
+        ? Object.entries(item.batchAllocations).filter(([, v]) => Number(v) > 0)
+        : []
+
+      let primaryGodownId = item.godown_id
+      let primaryBatchCode = item.batch_code
+      let primaryLocation = item.location_in_godown
+
+      if (form.transaction_type === 'sell' && allocEntries.length > 0) {
+        const [firstKey] = allocEntries[0]
+        const [gId, bCode] = firstKey.split('|')
+        const firstRow = (item.mappedRows || []).find(r => r.godown_id === gId && r.batch_code === bCode)
+        primaryGodownId = gId
+        primaryBatchCode = bCode
+        primaryLocation = firstRow?.location_in_godown || ''
+
+        if (allocEntries.length > 1) {
+          const batchDetails = allocEntries.map(([key, qty]) => {
+            const row = (item.mappedRows || []).find(r => `${r.godown_id}|${r.batch_code}` === key)
+            return `${row?.godown_name || '?'} · ${row?.batch_code || '?'}: ${qty} ${item.sell_unit === 'piece' ? 'pcs' : (item.product_unit || 'boxes')}`
+          }).join(', ')
+          const mixNote = `Multi-batch: ${batchDetails}`
+          notesForItem = notesForItem ? `${mixNote}. ${notesForItem}` : mixNote
+        }
+      }
+
+      const txnData = {
+        product_id: item.product_id,
+        transaction_type: form.transaction_type,
+        quantity: quantityInBoxes,
+        unit_price: item.unit_price,
+        total_price: item.total_price,
+        party_name: form.party_name.trim() || null,
+        invoice_number: form.invoice_number.trim() || null,
+        godown_id: primaryGodownId || null,
+        batch_code: primaryBatchCode?.trim() || null,
+        location_in_godown: primaryLocation?.trim() || null,
+        notes: notesForItem || null,
+      }
+
+      const success = await createTransaction(txnData)
+      if (!success) {
+        setSaving(false)
+        setError(`Failed to create transaction for ${item.product_name}.`)
+        return
+      }
+
+      // Update inventory
+      if (form.transaction_type === 'sell') {
+        const piecesPerBox = getPackageCount(item.package_spec)
+        for (const [key, qty] of allocEntries) {
+          const [gId, bCode] = key.split('|')
+          const row = (item.mappedRows || []).find(r => r.godown_id === gId && r.batch_code === bCode)
+          let boxesToSubtract = Number(qty)
+          if (item.sell_unit === 'piece' && piecesPerBox) {
+            boxesToSubtract = Number(qty) / piecesPerBox
+          }
+          await addInventoryEntry({
+            tile_id: item.product_id,
+            godown_id: gId,
+            batch_code: bCode,
+            location_in_godown: row?.location_in_godown || null,
+            boxes: -boxesToSubtract,
+            price: item.unit_price || 0,
+          })
+        }
+      } else {
+        await addInventoryEntry({
+          tile_id: item.product_id,
+          godown_id: item.godown_id,
+          batch_code: item.batch_code.trim(),
+          location_in_godown: item.location_in_godown?.trim() || null,
+          boxes: item.quantity,
+          price: item.unit_price || 0,
+        })
+      }
     }
-
-    // Create transaction record
-    const txnData = {
-      product_id: productId,
-      transaction_type: form.transaction_type,
-      quantity: quantityInBoxes, // Always store in boxes (will be decimal for piece sales)
-      product_package_spec_snapshot: productForSnapshot?.package_spec || null,
-      unit_price: form.unit_price ? Number(form.unit_price) : null,
-      total_price: form.total_price ? Number(form.total_price) : null,
-      party_name: form.party_name.trim() || null,
-      invoice_number: form.invoice_number.trim() || null,
-      godown_id: form.godown_id || null,
-      batch_code: form.batch_code.trim() || null,
-      location_in_godown: form.location_in_godown.trim() || null,
-      notes: notesWithUnit || null,
-    }
-
-    const success = await createTransaction(txnData)
-
-    if (!success) {
-      setSaving(false)
-      setError('Failed to create transaction. Please try again.')
-      return
-    }
-
-    // Update inventory automatically (always in boxes)
-    const inventoryChange = form.transaction_type === 'buy' 
-      ? Number(form.quantity) 
-      : -quantityInBoxes
-
-    await addInventoryEntry({
-      tile_id: productId,
-      godown_id: form.godown_id,
-      batch_code: form.batch_code.trim(),
-      location_in_godown: form.location_in_godown.trim() || null,
-      boxes: inventoryChange,
-      price: form.unit_price ? Number(form.unit_price) : 0,
-    })
 
     setSaving(false)
     onCreated()
@@ -682,7 +897,7 @@ function AddTransactionModal({ initialType, onClose, onCreated }) {
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
       <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        
+
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl z-10">
           <div>
@@ -691,398 +906,279 @@ function AddTransactionModal({ initialType, onClose, onCreated }) {
               {form.transaction_type === 'buy' ? 'New Purchase' : 'New Sale'}
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <path d="M1 1l8 8M9 1L1 9" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round"/>
-            </svg>
+          <button type="button" onClick={onClose} className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 1l8 8M9 1L1 9" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round"/></svg>
           </button>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); handleSubmitAll() }} className="px-6 py-5 space-y-4">
 
-          {/* Product Mode Toggle (only for BUY) */}
+          {/* Transaction type toggle */}
+          <div className="flex p-1 bg-slate-100 rounded-xl gap-1">
+            {['buy', 'sell'].map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => { setForm(f => ({ ...f, transaction_type: t, product_id: '' })); setProductSearch(''); setProductMode('existing'); setBatchAllocations({}); setInventorySnapshot(null); setSellUnit('box') }}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all capitalize ${form.transaction_type === t ? 'bg-white text-slate-900 shadow-apple-xs' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                {t === 'buy' ? '↓ Purchase' : '↑ Sale'}
+              </button>
+            ))}
+          </div>
+
+          {/* Product Mode toggle (only for buy) */}
           {form.transaction_type === 'buy' && (
-            <div>
-              <label className="label">Product Type</label>
-              <div className="flex p-1 bg-slate-100 rounded-xl gap-1">
-                {['existing', 'new'].map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setProductMode(mode)}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all duration-200 capitalize ${
-                      productMode === mode
-                        ? 'bg-white text-slate-900 shadow-apple-xs'
-                        : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    {mode === 'existing' ? 'Existing Product' : 'New Product'}
-                  </button>
-                ))}
+            <div className="flex p-1 bg-slate-100 rounded-xl gap-1">
+              {['existing', 'new'].map((m) => (
+                <button key={m} type="button" onClick={() => { setProductMode(m); if (m === 'new') { setForm(f => ({ ...f, product_id: '' })); setProductSearch(''); setInventorySnapshot(null) } }}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${productMode === m ? 'bg-white text-slate-900 shadow-apple-xs' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  {m === 'existing' ? 'Existing Product' : 'New Product'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* EXISTING PRODUCT: Searchable selector */}
+          {productMode === 'existing' && (
+            <div className="relative" ref={dropdownRef}>
+              <label className="label">Product <span className="text-red-500">*</span></label>
+              <input
+                ref={productSearchRef}
+                type="text"
+                value={productSearch}
+                onChange={(e) => { setProductSearch(e.target.value); setProductDropdownOpen(true); if (!e.target.value) setForm(f => ({ ...f, product_id: '' })) }}
+                onFocus={() => setProductDropdownOpen(true)}
+                placeholder="Search by name, brand, size…"
+                className="input-modern"
+                autoComplete="off"
+              />
+              {productDropdownOpen && filteredProducts.length > 0 && (
+                <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-apple-sm max-h-[220px] overflow-y-auto">
+                  {filteredProducts.slice(0, 30).map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => selectProduct(p)}
+                      className={`w-full text-left px-4 py-2.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0 ${form.product_id === p.id ? 'bg-indigo-50' : ''}`}
+                    >
+                      <p className="text-sm font-medium text-slate-800 truncate">{p.product_name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {p.brand && <span className="text-[10px] text-slate-400">{p.brand}</span>}
+                        {p.size && <span className="text-[10px] text-slate-400">· {p.size}</span>}
+                        {getPackageCount(p.package_spec, p.pieces_per_box) != null && (
+                          <span className="text-[10px] text-slate-400">{getPackageCount(p.package_spec, p.pieces_per_box)} pcs/box</span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* NEW PRODUCT fields (buy only) */}
+          {productMode === 'new' && form.transaction_type === 'buy' && (
+            <div className="space-y-3 p-4 rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/30">
+              <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">New Product Details</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Product Name <span className="text-red-500">*</span></label>
+                  <input type="text" value={form.product_name} onChange={(e) => setForm(f => ({ ...f, product_name: e.target.value }))} className="input-modern" placeholder="e.g. Marble White" />
+                </div>
+                <div>
+                  <label className="label">Brand</label>
+                  <ComboInput
+                    value={form.brand}
+                    onChange={(v) => setForm(f => ({ ...f, brand: v }))}
+                    options={filterOptions.brands || []}
+                    placeholder="Type or select brand"
+                    onAdd={async (v) => { await addFilterOption('brand', v); setFilterOptions(prev => ({ ...prev, brands: [...new Set([...prev.brands, v])].sort() })) }}
+                  />
+                </div>
+                <div>
+                  <label className="label">Size</label>
+                  <ComboInput
+                    value={form.size}
+                    onChange={(v) => setForm(f => ({ ...f, size: v }))}
+                    options={filterOptions.sizes || []}
+                    placeholder="Type or select size"
+                    onAdd={async (v) => { await addFilterOption('size', v); setFilterOptions(prev => ({ ...prev, sizes: [...new Set([...prev.sizes, v])].sort() })) }}
+                  />
+                </div>
+                <div>
+                  <label className="label">Finish</label>
+                  <ComboInput
+                    value={form.finish}
+                    onChange={(v) => setForm(f => ({ ...f, finish: v }))}
+                    options={filterOptions.finishes || []}
+                    placeholder="Type or select finish"
+                    onAdd={async (v) => { await addFilterOption('finish', v); setFilterOptions(prev => ({ ...prev, finishes: [...new Set([...prev.finishes, v])].sort() })) }}
+                  />
+                </div>
+                <div>
+                  <label className="label">Grade</label>
+                  <ComboInput
+                    value={form.grade}
+                    onChange={(v) => setForm(f => ({ ...f, grade: v }))}
+                    options={filterOptions.grades || []}
+                    placeholder="Type or select grade"
+                    onAdd={async (v) => { await addFilterOption('grade', v); setFilterOptions(prev => ({ ...prev, grades: [...new Set([...prev.grades, v])].sort() })) }}
+                  />
+                </div>
+                <div>
+                  <label className="label">Unit <span className="text-red-500">*</span></label>
+                  <select value={form.unit} onChange={(e) => setForm(f => ({ ...f, unit: e.target.value }))} className="input-modern">
+                    <option value="box">Box</option>
+                    <option value="piece">Piece</option>
+                    <option value="sqft">Sq Ft</option>
+                    <option value="sqm">Sq M</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Pcs/Box</label>
+                  <input type="number" min="1" value={form.package_spec} onChange={(e) => setForm(f => ({ ...f, package_spec: e.target.value }))} className="input-modern" placeholder="e.g. 5" />
+                </div>
+                <div>
+                  <label className="label">Category</label>
+                  <ComboInput
+                    value={categories.find(c => c.id === form.category_id)?.name || ''}
+                    onChange={(v) => {
+                      const match = categories.find(c => c.name.toLowerCase() === v.toLowerCase())
+                      setForm(f => ({ ...f, category_id: match ? match.id : '' }))
+                    }}
+                    options={categories.map(c => c.name)}
+                    placeholder="Type or select category"
+                    onAdd={async (v) => {
+                      const created = await createCategory(v)
+                      if (created) {
+                        const updated = await getAllCategories()
+                        setCategories(updated)
+                        setForm(f => ({ ...f, category_id: created.id }))
+                      }
+                    }}
+                  />
+                </div>
               </div>
             </div>
           )}
 
-          {/* Existing Product Selection */}
-          {(productMode === 'existing' || form.transaction_type === 'sell') && (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Product <span className="text-red-500">*</span></label>
-                  <select
-                    value={form.product_id}
-                    onChange={(e) => setForm(f => ({ ...f, product_id: e.target.value }))}
-                    className="input-modern"
-                    required
-                  >
-                    <option value="">Select product</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.product_name} {p.size ? `· ${p.size}` : ''} {getPackageCount(p.package_spec, p.pieces_per_box) != null ? `· ${getPackageCount(p.package_spec, p.pieces_per_box)} pcs/box` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Quantity <span className="text-red-500">*</span></label>
-                  <input
-                    type="number"
-                    min="1"
-                    step={form.sell_unit === 'piece' ? '1' : '1'}
-                    value={form.quantity}
-                    onChange={(e) => setForm(f => ({ ...f, quantity: e.target.value }))}
-                    placeholder={form.transaction_type === 'sell' && form.sell_unit === 'piece' ? 'e.g. 24' : (selectedProduct?.unit ? `in ${selectedProduct.unit}s` : 'e.g. 100')}
-                    className="input-modern"
-                    required
-                  />
-                </div>
+          {/* Sell unit toggle (piece/box) for sell mode */}
+          {form.transaction_type === 'sell' && selectedProduct && getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box) && (
+            <div>
+              <label className="label">Sell By</label>
+              <div className="flex p-1 bg-slate-100 rounded-xl gap-1">
+                <button type="button" onClick={() => setSellUnit('box')} className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${sellUnit === 'box' ? 'bg-white text-slate-900 shadow-apple-xs' : 'text-slate-500'}`}>
+                  Box ({selectedProduct?.unit || 'box'})
+                </button>
+                <button type="button" onClick={() => setSellUnit('piece')} className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${sellUnit === 'piece' ? 'bg-white text-slate-900 shadow-apple-xs' : 'text-slate-500'}`}>
+                  Piece ({getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box)}/box)
+                </button>
               </div>
-              {form.transaction_type === 'sell' && getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box) && (
-                <div>
-                  <label className="label">Sell by</label>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setForm(f => ({ ...f, sell_unit: 'box', quantity: '' }))}
-                      className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all duration-200 ${
-                        form.sell_unit === 'box'
-                          ? 'bg-indigo-500 text-white shadow-apple-xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      Box
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setForm(f => ({ ...f, sell_unit: 'piece', quantity: '' }))}
-                      className={`flex-1 py-2.5 px-4 rounded-lg text-sm font-medium transition-all duration-200 ${
-                        form.sell_unit === 'piece'
-                          ? 'bg-indigo-500 text-white shadow-apple-xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                    >
-                      Piece ({getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box)}/box)
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
+            </div>
           )}
 
-          {/* New Product Fields (only for BUY + new mode) */}
-          {productMode === 'new' && form.transaction_type === 'buy' && (
-            <>
-              <div className="rounded-2xl border border-indigo-200 bg-indigo-50/50 px-4 py-3">
-                <p className="text-xs font-semibold text-indigo-700 mb-1">Adding New Product</p>
-                <p className="text-xs text-indigo-600">Fill in product details below. It will be added to your inventory.</p>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Product Name <span className="text-red-500">*</span></label>
-                  <input
-                    type="text"
-                    value={form.product_name}
-                    onChange={(e) => setForm(f => ({ ...f, product_name: e.target.value }))}
-                    placeholder="e.g. Ceramic Tile"
-                    className="input-modern"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="label">Category</label>
-                  <select
-                    value={form.category_id}
-                    onChange={(e) => setForm(f => ({ ...f, category_id: e.target.value }))}
-                    className="input-modern"
-                  >
-                    <option value="">Select category</option>
-                    {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>{cat.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+          {/* Quantity */}
+          <div>
+            <label className="label">Quantity <span className="text-red-500">*</span></label>
+            <input
+              type="number"
+              min="1"
+              step={sellUnit === 'piece' ? '1' : '0.01'}
+              value={form.quantity}
+              onChange={(e) => setForm(f => ({ ...f, quantity: e.target.value }))}
+              placeholder={sellUnit === 'piece' ? 'Number of pieces' : `in ${selectedProduct?.unit || form.unit || 'box'}s`}
+              className="input-modern"
+            />
+          </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="label">Brand</label>
-                  <input
-                    type="text"
-                    value={form.brand}
-                    onChange={(e) => setForm(f => ({ ...f, brand: e.target.value }))}
-                    placeholder="e.g. Kajaria"
-                    className="input-modern"
-                    list="brands-list"
-                  />
-                  <datalist id="brands-list">
-                    {fieldOptions.brands.map((b, idx) => <option key={idx} value={b} />)}
-                  </datalist>
-                </div>
-                <div>
-                  <label className="label">Size</label>
-                  <input
-                    type="text"
-                    value={form.size}
-                    onChange={(e) => setForm(f => ({ ...f, size: e.target.value }))}
-                    placeholder="e.g. 600x600"
-                    className="input-modern"
-                    list="sizes-list"
-                  />
-                  <datalist id="sizes-list">
-                    {fieldOptions.sizes.map((s, idx) => <option key={idx} value={s} />)}
-                  </datalist>
-                </div>
-                <div>
-                  <label className="label">Unit <span className="text-red-500">*</span></label>
-                  <input
-                    type="text"
-                    value={form.unit}
-                    onChange={(e) => setForm(f => ({ ...f, unit: e.target.value }))}
-                    placeholder="e.g. box"
-                    className="input-modern"
-                    list="units-list"
-                    required
-                  />
-                  <datalist id="units-list">
-                    {fieldOptions.units.map((u, idx) => <option key={idx} value={u} />)}
-                  </datalist>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3">
-                <div>
-                  <label className="label">Package Spec (pieces/box)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={form.package_spec}
-                    onChange={(e) => setForm(f => ({ ...f, package_spec: e.target.value }))}
-                    placeholder="e.g. 4"
-                    className="input-modern"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Finish</label>
-                  <input
-                    type="text"
-                    value={form.finish}
-                    onChange={(e) => setForm(f => ({ ...f, finish: e.target.value }))}
-                    placeholder="e.g. Glossy"
-                    className="input-modern"
-                    list="finishes-list"
-                  />
-                  <datalist id="finishes-list">
-                    {fieldOptions.finishes.map((f, idx) => <option key={idx} value={f} />)}
-                  </datalist>
-                </div>
-                <div>
-                  <label className="label">Grade</label>
-                  <input
-                    type="text"
-                    value={form.grade}
-                    onChange={(e) => setForm(f => ({ ...f, grade: e.target.value }))}
-                    placeholder="e.g. Premium"
-                    className="input-modern"
-                    list="grades-list"
-                  />
-                  <datalist id="grades-list">
-                    {fieldOptions.grades.map((g, idx) => <option key={idx} value={g} />)}
-                  </datalist>
-                </div>
-              </div>
-
-              <div>
-                <label className="label">Quantity <span className="text-red-500">*</span></label>
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={form.quantity}
-                  onChange={(e) => setForm(f => ({ ...f, quantity: e.target.value }))}
-                  placeholder={form.unit ? `in ${form.unit}s` : 'e.g. 100'}
-                  className="input-modern"
-                  required
-                />
-              </div>
-            </>
-          )}
-
-          {form.product_id && productMode === 'existing' && (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-4 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Stock Information</p>
+          {/* SELL: Multi-batch allocation */}
+          {form.transaction_type === 'sell' && form.product_id && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Available Stock</p>
                 {inventoryLoading && <span className="text-[11px] text-slate-400">Loading…</span>}
               </div>
 
-              {!inventoryLoading && mappedInventoryRows.length > 0 ? (
+              {!inventoryLoading && mappedInventoryRows.length > 0 && (
                 <>
-                  {/* Total Stock Display */}
-                  <div className="flex items-baseline gap-4">
-                    <div>
-                      <p className="text-[11px] text-slate-400 mb-1">Total Stock</p>
-                      <p className="text-2xl font-bold text-slate-900">
-                        {totalStock}
-                        <span className="ml-1 text-sm font-medium text-slate-400">{selectedProduct?.unit || 'boxes'}</span>
-                      </p>
-                    </div>
-                    {getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box) != null && (
-                      <div>
-                        <p className="text-[11px] text-slate-400 mb-1">Package</p>
-                        <p className="text-sm font-semibold text-slate-700">{getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box)} pcs/box</p>
-                      </div>
-                    )}
-                    {mappedInventoryRows.length > 1 && (
-                      <div className="text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200">
-                        Across {mappedInventoryRows.length} locations
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Batch/Location Selector for SELL */}
-                  {form.transaction_type === 'sell' && (
-                    <div>
-                      <label className="label">Select Batch/Location to Sell From <span className="text-red-500">*</span></label>
-                      <select
-                        value={form.godown_id && form.batch_code ? `${form.godown_id}|${form.batch_code}` : ''}
-                        onChange={(e) => {
-                          if (!e.target.value) {
-                            setForm(f => ({ ...f, godown_id: '', batch_code: '', location_in_godown: '' }))
-                            return
-                          }
-                          const [godownId, batchCode] = e.target.value.split('|')
-                          const row = mappedInventoryRows.find(r => r.godown_id === godownId && r.batch_code === batchCode)
-                          setForm(f => ({
-                            ...f,
-                            godown_id: godownId,
-                            batch_code: batchCode,
-                            location_in_godown: row?.location_in_godown || '',
-                          }))
-                        }}
-                        className="input-modern"
-                        required
-                      >
-                        <option value="">Choose batch/location</option>
-                        {mappedInventoryRows.map((row, idx) => (
-                          <option key={idx} value={`${row.godown_id}|${row.batch_code}`}>
-                            {row.godown_name} · Batch {row.batch_code} {row.location_in_godown ? `· ${row.location_in_godown}` : ''} — {row.boxes} {selectedProduct?.unit || 'boxes'} available
-                          </option>
-                        ))}
-                      </select>
+                  {getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box) != null && (
+                    <div className="bg-white rounded-xl px-3 py-2 border border-slate-100">
+                      <p className="text-[11px] text-slate-400">Package Spec</p>
+                      <p className="text-sm font-semibold text-slate-700">{getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box)} pcs/box</p>
                     </div>
                   )}
 
-                  {/* Batch/Location Input for BUY */}
-                  {form.transaction_type === 'buy' && (
-                    <>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="label">Godown <span className="text-red-500">*</span></label>
-                          <select
-                            value={form.godown_id}
-                            onChange={(e) => {
-                              setForm(f => ({ ...f, godown_id: e.target.value, location_in_godown: '' }))
-                            }}
-                            className="input-modern"
-                            required
-                          >
-                            <option value="">Select godown</option>
-                            {godowns.map((g) => (
-                              <option key={g.id} value={g.id}>{g.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="label">Batch Code <span className="text-red-500">*</span></label>
+                  <p className="text-[11px] text-slate-400">Allocate from batches:</p>
+                  <div className="space-y-2">
+                    {mappedInventoryRows.map((row) => {
+                      const key = `${row.godown_id}|${row.batch_code}`
+                      const allocated = batchAllocations[key] || ''
+                      return (
+                        <div key={key} className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-3 py-2.5">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-slate-700 truncate">{row.godown_name} · {row.batch_code}</p>
+                            <p className="text-[11px] text-slate-400">
+                              {row.location_in_godown ? `${row.location_in_godown} · ` : ''}{formatQty(row.boxes, getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box), selectedProduct?.unit || 'box')} available
+                            </p>
+                          </div>
                           <input
-                            type="text"
-                            value={form.batch_code}
-                            onChange={(e) => setForm(f => ({ ...f, batch_code: e.target.value }))}
-                            placeholder="e.g. B001"
-                            className="input-modern"
-                            required
+                            type="number"
+                            min="0"
+                            max={sellUnit === 'piece' ? row.boxes * (getPackageCount(selectedProduct?.package_spec, selectedProduct?.pieces_per_box) || 1) : row.boxes}
+                            step="1"
+                            value={allocated}
+                            onChange={(e) => {
+                              setBatchAllocations(prev => ({ ...prev, [key]: e.target.value }))
+                            }}
+                            placeholder="0"
+                            className="input-modern w-20 text-center text-sm py-1.5"
                           />
                         </div>
-                      </div>
-                      <div>
-                        <label className="label">Location in Godown <span className="text-slate-400 font-normal normal-case tracking-normal">(optional)</span></label>
-                        <select
-                          value={form.location_in_godown}
-                          onChange={(e) => setForm(f => ({ ...f, location_in_godown: e.target.value }))}
-                          className="input-modern"
-                        >
-                          <option value="">{form.godown_id ? 'Select location' : 'Select a godown first'}</option>
-                          {form.godown_id && godowns.find(g => g.id === form.godown_id)?.locations?.map((loc) => (
-                            <option key={loc} value={loc}>{loc}</option>
-                          ))}
-                        </select>
-                        {form.godown_id && (!godowns.find(g => g.id === form.godown_id)?.locations || godowns.find(g => g.id === form.godown_id)?.locations?.length === 0) && (
-                          <p className="mt-2 text-xs text-amber-600">No saved locations in this godown yet. Add them from the Godowns tab first.</p>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  {/* Selected Batch Details */}
-                  {selectedInventoryRow && (
-                    <div className="bg-white border border-slate-200 rounded-xl p-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 mb-2">
-                        {form.transaction_type === 'sell' ? 'Selling From' : 'Selected Location'}
-                      </p>
-                      <div className="grid grid-cols-3 gap-3 text-xs">
-                        <div>
-                          <p className="text-slate-400 mb-1">Godown</p>
-                          <p className="font-semibold text-slate-700">{selectedInventoryRow.godown_name}</p>
-                        </div>
-                        <div>
-                          <p className="text-slate-400 mb-1">Batch</p>
-                          <p className="font-semibold text-slate-700">{selectedInventoryRow.batch_code}</p>
-                        </div>
-                        <div>
-                          <p className="text-slate-400 mb-1">Available</p>
-                          <p className="font-semibold text-emerald-600">{currentStock} {selectedProduct?.unit || 'boxes'}</p>
-                        </div>
-                      </div>
-                      {selectedInventoryRow.location_in_godown && (
-                        <p className="text-xs text-slate-500 mt-2">
-                          Location: {selectedInventoryRow.location_in_godown}
-                        </p>
-                      )}
-                    </div>
-                  )}
+                      )
+                    })}
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    Total allocated: {Object.values(batchAllocations).reduce((s, v) => s + (Number(v) || 0), 0)} {sellUnit === 'piece' ? 'pcs' : (selectedProduct?.unit || 'boxes')}
+                  </p>
                 </>
-              ) : !inventoryLoading ? (
-                <p className="text-sm text-amber-600">No stock found for this product. {form.transaction_type === 'buy' ? 'You can still proceed with the purchase.' : 'Cannot sell without stock.'}</p>
-              ) : null}
+              )}
+
+              {!inventoryLoading && mappedInventoryRows.length === 0 && (
+                <p className="text-sm text-amber-600">No stock found for this product.</p>
+              )}
+            </div>
+          )}
+
+          {/* BUY: Godown + Batch */}
+          {form.transaction_type === 'buy' && (productMode === 'existing' ? form.product_id : form.product_name) && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Godown <span className="text-red-500">*</span></label>
+                <select value={form.godown_id} onChange={(e) => setForm(f => ({ ...f, godown_id: e.target.value }))} className="input-modern" required>
+                  <option value="">Select godown</option>
+                  {godowns.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Batch Code <span className="text-red-500">*</span></label>
+                <input type="text" value={form.batch_code} onChange={(e) => setForm(f => ({ ...f, batch_code: e.target.value }))} className="input-modern" placeholder="e.g. BATCH-001" required />
+              </div>
+              <div className="col-span-2">
+                <label className="label">Location in Godown</label>
+                <select
+                  className="input-modern"
+                  value={form.location_in_godown}
+                  onChange={(e) => setForm(f => ({ ...f, location_in_godown: e.target.value }))}
+                >
+                  <option value="">Select location</option>
+                  {(godowns.find(g => g.id === form.godown_id)?.locations || []).filter(Boolean).map(loc => (
+                    <option key={loc} value={loc}>{loc}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
 
@@ -1090,76 +1186,82 @@ function AddTransactionModal({ initialType, onClose, onCreated }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Unit Price</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.unit_price}
-                onChange={(e) => setForm(f => ({ ...f, unit_price: e.target.value }))}
-                placeholder="₹ per unit"
-                className="input-modern"
-              />
+              <input type="number" min="0" step="0.01" value={form.unit_price} onChange={(e) => setForm(f => ({ ...f, unit_price: e.target.value }))} placeholder="₹ per unit" className="input-modern" />
             </div>
             <div>
               <label className="label">Total Price</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.total_price}
-                onChange={(e) => setForm(f => ({ ...f, total_price: e.target.value }))}
-                placeholder="₹ total"
-                className="input-modern"
-              />
+              <input type="number" min="0" step="0.01" value={form.total_price} onChange={(e) => setForm(f => ({ ...f, total_price: e.target.value }))} placeholder="₹ total" className="input-modern" />
             </div>
           </div>
 
-          {/* Party Name + Invoice */}
+          {/* Add to list button */}
+          <button
+            type="button"
+            onClick={handleAddToCart}
+            disabled={addingToCart || inventoryLoading}
+            className="w-full py-2.5 rounded-xl border-2 border-dashed border-indigo-300 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 transition-all disabled:opacity-50"
+          >
+            {addingToCart ? 'Adding…' : '+ Add to list'}
+          </button>
+
+          {/* Cart items */}
+          {cartItems.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-100/80 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Items ({cartItems.length})</p>
+                <p className="text-xs font-bold text-slate-700">Total: ₹{cartItems.reduce((s, i) => s + (i.total_price || 0), 0).toLocaleString()}</p>
+              </div>
+              <ul className="divide-y divide-slate-200 max-h-[200px] overflow-y-auto">
+                {cartItems.map((item) => (
+                  <li key={item.id} className="flex items-center justify-between px-4 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-800 truncate">
+                        {item.product_name}
+                        {item.product_size && <span className="text-slate-400 ml-1">· {item.product_size}</span>}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {item.quantity} {item.sell_unit === 'piece' ? 'pcs' : (item.product_unit || 'boxes')}
+                        {item.unit_price ? ` @ ₹${item.unit_price}` : ''}
+                        {item.total_price ? ` = ₹${item.total_price.toLocaleString()}` : ''}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => removeCartItem(item.id)} className="ml-2 w-6 h-6 rounded-md flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                      <svg width="9" height="9" viewBox="0 0 8 8" fill="none"><path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Shared fields: Party + Invoice */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">{form.transaction_type === 'buy' ? 'Supplier' : 'Customer'}</label>
-              <input
-                type="text"
-                value={form.party_name}
-                onChange={(e) => setForm(f => ({ ...f, party_name: e.target.value }))}
-                placeholder="Party name"
-                className="input-modern"
-              />
+              <input type="text" value={form.party_name} onChange={(e) => setForm(f => ({ ...f, party_name: e.target.value }))} placeholder="Party name" className="input-modern" />
             </div>
             <div>
               <label className="label">Invoice Number</label>
-              <input
-                type="text"
-                value={form.invoice_number}
-                onChange={(e) => setForm(f => ({ ...f, invoice_number: e.target.value }))}
-                placeholder="e.g. INV-2024-001"
-                className="input-modern"
-              />
+              <input type="text" value={form.invoice_number} onChange={(e) => setForm(f => ({ ...f, invoice_number: e.target.value }))} placeholder="e.g. INV-2024-001" className="input-modern" />
             </div>
           </div>
 
           {/* Notes */}
           <div>
             <label className="label">Notes</label>
-            <textarea
-              value={form.notes}
-              onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))}
-              placeholder="Additional details..."
-              className="input-modern resize-none"
-              rows={2}
-            />
+            <textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Additional details..." className="input-modern resize-none" rows={2} />
           </div>
 
           {error && <p className="text-xs font-medium text-red-500">{error}</p>}
 
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-            <button 
-              type="submit" 
-              disabled={saving || inventoryLoading || (form.transaction_type === 'sell' && !selectedInventoryRow)} 
+            <button
+              type="submit"
+              disabled={saving || addingToCart}
               className="btn-primary flex-1 disabled:opacity-50"
             >
-              {saving ? 'Saving...' : form.transaction_type === 'buy' ? 'Create Purchase' : 'Create Sale'}
+              {saving ? 'Saving...' : cartItems.length > 0 ? `Submit ${cartItems.length} item${cartItems.length !== 1 ? 's' : ''}` : 'Submit'}
             </button>
           </div>
         </form>

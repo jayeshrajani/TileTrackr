@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { updateInventoryEntry } from '../services/inventoryService'
+import { formatQty } from '../utils/formatQty'
 
 function getGradeTagClass(grade) {
   const normalizedGrade = grade?.trim().toLowerCase()
@@ -111,7 +112,7 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
                   Current Stock
                 </p>
-                <p className="text-lg font-bold text-indigo-600">{totalBoxes} {unitPlural}</p>
+                <p className="text-lg font-bold text-indigo-600">{formatQty(totalBoxes, packageCount, unit)}</p>
               </div>
               {packageCount != null && (
                 <div>
@@ -229,9 +230,9 @@ function TileInventoryCard({ tileInventory, onQuickAdd }) {
                                 </p>
                                 <div className="mt-4 flex gap-8">
                                   <div>
-                                    <p className="text-xs text-slate-400">Quantity ({unitPlural})</p>
+                                    <p className="text-xs text-slate-400">Quantity</p>
                                     <p className="mt-1 text-2xl font-bold text-indigo-600">
-                                      {row.boxes}
+                                      {formatQty(row.boxes, packageCount, unit)}
                                     </p>
                                   </div>
                                   <div>

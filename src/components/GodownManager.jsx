@@ -3,6 +3,7 @@ import {
   createGodown,
   deleteGodown,
   getGodownInventoryCount,
+  getLocationInventoryCount,
   updateGodownLocations,
 } from '../services/inventoryService'
 
@@ -200,12 +201,21 @@ function GodownManager({ godowns, onGodownDeleted, onGodownAdded, onGodownUpdate
     const godown = godowns.find((item) => item.id === godownId)
     if (!godown) return
 
-    const currentLocations = Array.isArray(godown.locations) ? godown.locations : []
-    const nextLocations = currentLocations.filter((location) => location !== locationName)
     const locationKey = `${godownId}:${locationName}`
-
     setDeletingLocationKey(locationKey)
     setLocationError('')
+
+    // Check if any products exist in this sublocation
+    const { count } = await getLocationInventoryCount(godownId, locationName)
+    if (count > 0) {
+      setDeletingLocationKey('')
+      setLocationError(`Cannot delete "${locationName}" — products still exist in this location.`)
+      return
+    }
+
+    const currentLocations = Array.isArray(godown.locations) ? godown.locations : []
+    const nextLocations = currentLocations.filter((location) => location !== locationName)
+
     const result = await updateGodownLocations(godownId, nextLocations)
     setDeletingLocationKey('')
 

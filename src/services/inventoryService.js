@@ -1,3 +1,5 @@
+import { supabase } from './supabaseClient'
+
 /**
  * Count inventory rows and total stock quantity stored in a godown,
  * including the distinct products affected.
@@ -20,6 +22,24 @@ export async function getGodownInventoryCount(godownId) {
 }
 
 /**
+ * Count inventory rows in a specific location within a godown.
+ */
+export async function getLocationInventoryCount(godownId, locationName) {
+  try {
+    const { data, error } = await supabase
+      .from('inventory')
+      .select('id')
+      .eq('godown_id', godownId)
+      .eq('location_in_godown', locationName)
+    if (error) throw error
+    return { count: (data || []).length }
+  } catch (error) {
+    console.error('Error checking location inventory:', error)
+    return { count: 0 }
+  }
+}
+
+/**
  * Get distinct brands, sizes, finishes, and units already used in products.
  * Used to power the combobox suggestions in Add Product.
  */
@@ -27,7 +47,7 @@ export async function getProductFieldOptions() {
   try {
     const { data, error } = await supabase
       .from('products')
-      .select('brand, size, finish, grade, unit, package_spec')
+      .select('brand, size, finish, grade, unit')
     if (error) throw error
     const unique = (key) => [
       ...new Set(
@@ -42,11 +62,10 @@ export async function getProductFieldOptions() {
       finishes: unique('finish'),
       grades:   unique('grade'),
       units:    unique('unit'),
-      packageSpecs: unique('package_spec'),
     }
   } catch (error) {
     console.error('Error fetching product field options:', error)
-    return { brands: [], sizes: [], finishes: [], grades: [], units: [], packageSpecs: [] }
+    return { brands: [], sizes: [], finishes: [], grades: [], units: [] }
   }
 }
 
@@ -87,34 +106,141 @@ export async function createCategory(name) {
 }
 
 /**
+ * Delete a category by name or id.
+ */
+export async function deleteCategory(nameOrId) {
+  try {
+    // Check if any products still use this category
+    let countQuery = supabase.from('products').select('id', { count: 'exact', head: true })
+    if (typeof nameOrId === 'string' && nameOrId.length === 36 && nameOrId.includes('-')) {
+      countQuery = countQuery.eq('category_id', nameOrId)
+    } else {
+      // Look up the category id by name first
+      const { data: cat } = await supabase.from('categories').select('id').eq('name', nameOrId).single()
+      if (cat) countQuery = countQuery.eq('category_id', cat.id)
+    }
+    const { count } = await countQuery
+    if (count && count > 0) {
+      return { ok: false, message: `Cannot delete — ${count} product${count > 1 ? 's' : ''} still use this category.` }
+    }
+
+    // Safe to delete
+    let query = supabase.from('categories').delete()
+    if (typeof nameOrId === 'string' && nameOrId.length === 36 && nameOrId.includes('-')) {
+      query = query.eq('id', nameOrId)
+    } else {
+      query = query.eq('name', nameOrId)
+    }
+    const { error } = await query
+    if (error) throw error
+    return { ok: true }
+  } catch (error) {
+    console.error('Error deleting category:', error)
+    return { ok: false, message: error.message || 'Failed to delete category.' }
+  }
+}
+
+/**
+ * Get all filter options (brand, size, finish, grade) from the filter_options table.
+ * Returns { brands: [{id, value}], sizes: [...], finishes: [...], grades: [...] }
+ */
+export async function getFilterOptions() {
+  try {
+    const { data, error } = await supabase
+      .from('filter_options')
+      .select('id, field, value')
+      .order('value')
+    if (error) throw error
+    const grouped = { brands: [], sizes: [], finishes: [], grades: [] }
+    for (const row of (data || [])) {
+      const key = row.field + 's' // brand -> brands, size -> sizes, etc.
+      if (grouped[key]) grouped[key].push({ id: row.id, value: row.value })
+    }
+    return grouped
+  } catch (error) {
+    console.error('Error fetching filter options:', error)
+    return { brands: [], sizes: [], finishes: [], grades: [] }
+  }
+}
+
+/**
+ * Add a new filter option (brand/size/finish/grade).
+ */
+export async function addFilterOption(field, value) {
+  try {
+    const { error } = await supabase
+      .from('filter_options')
+      .insert([{ field, value: value.trim() }])
+    if (error) throw error
+    return { ok: true }
+  } catch (error) {
+    console.error('Error adding filter option:', error)
+    return { ok: false, message: error.message || 'Failed to add option.' }
+  }
+}
+
+/**
+ * Delete a filter option by id, or by field+value if id is null.
+ * Blocks deletion if any products use that value.
+ */
+export async function deleteFilterOption(id, field, value) {
+  try {
+    // Check if any products use this filter value
+    // field maps to the column name on products table (brand, size, finish, grade)
+    const columnMap = { brand: 'brand', size: 'size', finish: 'finish', grade: 'grade' }
+    const column = columnMap[field]
+    if (column && value) {
+      const { count } = await supabase
+        .from('products')
+        .select('id', { count: 'exact', head: true })
+        .ilike(column, value)
+      if (count && count > 0) {
+        return { ok: false, message: `Cannot delete — ${count} product${count > 1 ? 's' : ''} still use this ${field}.` }
+      }
+    }
+
+    let query = supabase.from('filter_options').delete()
+    if (id) {
+      query = query.eq('id', id)
+    } else {
+      query = query.eq('field', field).eq('value', value)
+    }
+    const { error } = await query
+    if (error) throw error
+    return { ok: true }
+  } catch (error) {
+    console.error('Error deleting filter option:', error)
+    return { ok: false, message: error.message || 'Failed to delete option.' }
+  }
+}
+
+/**
  * Create a new product
  * Returns the created product or null on failure.
  */
-export async function createProduct({ product_name, brand, size, finish, grade, unit, category_id, package_spec, pieces_per_box }) {
+export async function createProduct({ product_name, brand, size, finish, grade, unit, category_id, package_spec }) {
   try {
-    const normalizedPiecesPerBox = Number(pieces_per_box)
+    const row = { product_name, package_spec: package_spec || '1' }
+    if (brand && brand.trim()) row.brand = brand.trim()
+    if (size && size.trim()) row.size = size.trim()
+    if (finish && finish.trim()) row.finish = finish.trim()
+    if (grade && grade.trim()) row.grade = grade.trim()
+    if (unit && unit.trim()) row.unit = unit.trim()
+    // Only include category_id if it looks like a valid UUID
+    if (category_id && category_id.length === 36 && category_id.includes('-')) {
+      row.category_id = category_id
+    }
+
+    console.log('Creating product with row:', JSON.stringify(row))
 
     const { data, error } = await supabase
       .from('products')
-      .insert([{
-        product_name,
-        brand,
-        size,
-        finish,
-        grade,
-        unit,
-        category_id,
-        package_spec,
-        pieces_per_box: Number.isFinite(normalizedPiecesPerBox) && normalizedPiecesPerBox > 0
-          ? Math.round(normalizedPiecesPerBox)
-          : null,
-      }])
-      .select('*')
-      .single()
+      .insert([row])
+      .select()
     if (error) throw error
-    return data
+    return data?.[0] || null
   } catch (error) {
-    console.error('Error creating product:', error)
+    console.error('Error creating product:', error?.message || error?.details || error)
     return null
   }
 }
@@ -133,8 +259,6 @@ export async function updateProduct(productId, updates) {
     return true
   } catch (error) {
     console.error('Error updating product:', error)
-    console.error('Update data:', updates)
-    console.error('Product ID:', productId)
     return false
   }
 }
@@ -145,8 +269,12 @@ export async function updateProduct(productId, updates) {
  */
 export async function deleteProduct(productId) {
   try {
-    // Fetch inventory IDs and transaction count for this product
-    const [inventoryResult, transactionResult] = await Promise.all([
+    const [productResult, inventoryResult, transactionResult] = await Promise.all([
+      supabase
+        .from('products')
+        .select('id, product_name, unit')
+        .eq('id', productId)
+        .single(),
       supabase
         .from('inventory')
         .select('id')
@@ -157,23 +285,40 @@ export async function deleteProduct(productId) {
         .eq('product_id', productId),
     ])
 
+    if (productResult.error) throw productResult.error
     if (inventoryResult.error) throw inventoryResult.error
     if (transactionResult.error) throw transactionResult.error
 
+    const product = productResult.data
     const inventoryIds = (inventoryResult.data || []).map((row) => row.id)
+    const inventoryCount = inventoryIds.length
     const transactionCount = transactionResult.count || 0
 
-    // Detach transactions from the product (keep transactions but set product_id to null)
     if (transactionCount > 0) {
+      const { error: snapshotError } = await supabase
+        .from('transactions')
+        .update({
+          product_name_snapshot: product.product_name || 'Deleted Product',
+          product_unit_snapshot: product.unit || 'box',
+        })
+        .eq('product_id', productId)
+
+      if (snapshotError) throw snapshotError
+
       const { error: detachError } = await supabase
         .from('transactions')
         .update({ product_id: null })
         .eq('product_id', productId)
 
-      if (detachError) throw detachError
+      if (detachError) {
+        return {
+          ok: false,
+          code: detachError.code || 'TRANSACTION_DETACH_FAILED',
+          message: 'Transactions can be kept only after the database allows product_id to be nullable and stores product snapshots on the transaction row.',
+        }
+      }
     }
 
-    // Delete related stock logs and inventory
     if (inventoryIds.length > 0) {
       const { error: stockLogsError } = await supabase
         .from('stock_logs')
@@ -190,7 +335,6 @@ export async function deleteProduct(productId) {
       if (inventoryDeleteError) throw inventoryDeleteError
     }
 
-    // Finally, delete the product
     const { error } = await supabase
       .from('products')
       .delete()
@@ -204,7 +348,7 @@ export async function deleteProduct(productId) {
     return {
       ok: false,
       code: error.code || 'DELETE_FAILED',
-      message: error.message || 'Failed to delete product. Please try again.',
+      message: 'Failed to delete product. Please try again.',
     }
   }
 }
@@ -270,7 +414,6 @@ export async function updateStockQuick(productId, delta) {
     console.error('Error in updateStockQuick:', error)
   }
 }
-import { supabase } from './supabaseClient'
 
 const normalize = (value) => value.toLowerCase().trim()
 const FAVORITES_KEY = 'tileflow_favorites'
@@ -405,27 +548,26 @@ export async function getAllTiles() {
 
     if (error) throw error
 
-    // Fetch all inventory to compute total stock per product
+    // Fetch inventory totals per product
     const { data: inventory, error: invError } = await supabase
       .from('inventory')
       .select('product_id, stock_quantity')
 
     if (invError) throw invError
 
-    // Aggregate stock by product_id
+    // Sum stock per product
     const stockMap = {}
-    ;(inventory || []).forEach(entry => {
-      if (!stockMap[entry.product_id]) stockMap[entry.product_id] = 0
-      stockMap[entry.product_id] += entry.stock_quantity
-    })
+    for (const row of (inventory || [])) {
+      stockMap[row.product_id] = (stockMap[row.product_id] || 0) + (row.stock_quantity || 0)
+    }
 
-    // Add totalBoxes to each product
-    const productsWithStock = (products || []).map(p => ({
+    // Attach totalBoxes to each product
+    const enriched = (products || []).map((p) => ({
       ...p,
-      totalBoxes: stockMap[p.id] || 0
+      totalBoxes: stockMap[p.id] || 0,
     }))
 
-    return withFavoriteFlag(productsWithStock)
+    return withFavoriteFlag(enriched)
   } catch (error) {
     console.error('Error fetching all tiles:', error)
     return []
@@ -491,11 +633,6 @@ export async function getTileInventory(productId) {
 
     if (inventoryError) throw inventoryError
 
-    const piecesPerBox = Number(product.pieces_per_box)
-    const resolvedPiecesPerBox = Number.isFinite(piecesPerBox) && piecesPerBox > 0
-      ? Math.round(piecesPerBox)
-      : null
-
     // Group by batch_number
     const batchMap = {}
     ;(inventoryEntries || []).forEach((entry) => {
@@ -513,10 +650,8 @@ export async function getTileInventory(productId) {
         location_in_godown: entry.location_in_godown || null,
         batch_code: entry.batch_number,
         boxes: entry.stock_quantity,
-        pieces_per_box: resolvedPiecesPerBox,
-        total_pieces: resolvedPiecesPerBox
-          ? entry.stock_quantity * resolvedPiecesPerBox
-          : null,
+        pieces_per_box: 1, // Default, you may want to add this to DB
+        total_pieces: entry.stock_quantity,
       })
       batchMap[entry.batch_number].total_boxes += entry.stock_quantity
     })
@@ -557,7 +692,7 @@ export async function addInventoryEntry(data) {
       price = 0,
     } = data
 
-    if (!productId || !batchNumber || !godownId || stockQuantity === null || stockQuantity === undefined) {
+    if (!productId || !batchNumber || !godownId || !stockQuantity) {
       console.error('addInventoryEntry: missing required fields', data)
       return false
     }
@@ -776,6 +911,108 @@ export async function createTransaction(data) {
 }
 
 /**
+ * Record a goods return from customer.
+ * Creates a return_in transaction linked to the original sell, and adds stock back.
+ * Condition and reason are stored in the notes field.
+ */
+export async function createGoodsReturn({ originalTxn, quantity, condition, reason, godown_id, batch_code, location_in_godown }) {
+  try {
+    const noteParts = [
+      `GOODS RETURN from customer${originalTxn.party_name ? ` (${originalTxn.party_name})` : ''}`,
+      `Original sale: ${originalTxn.quantity} ${originalTxn.unit || 'boxes'} on ${new Date(originalTxn.created_at).toLocaleDateString()}`,
+      `Condition: ${condition || 'good'}`,
+      reason ? `Reason: ${reason}` : null,
+    ].filter(Boolean).join('. ')
+
+    const returnData = {
+      product_id: originalTxn.product_id,
+      transaction_type: 'return_in',
+      quantity,
+      unit_price: originalTxn.unit_price || null,
+      total_price: originalTxn.unit_price ? (quantity * originalTxn.unit_price) : null,
+      party_name: originalTxn.party_name || null,
+      godown_id: godown_id || originalTxn.godown_id || null,
+      batch_code: batch_code || originalTxn.batch_code || null,
+      location_in_godown: location_in_godown || originalTxn.location_in_godown || null,
+      linked_transaction_id: originalTxn.id,
+      notes: noteParts,
+    }
+
+    const { error } = await supabase
+      .from('transactions')
+      .insert([returnData])
+    if (error) throw error
+
+    // Add stock back
+    await addInventoryEntry({
+      tile_id: originalTxn.product_id,
+      godown_id: godown_id || originalTxn.godown_id,
+      batch_code: batch_code || originalTxn.batch_code || 'RETURN',
+      location_in_godown: location_in_godown || originalTxn.location_in_godown || null,
+      boxes: quantity,
+      price: originalTxn.unit_price || 0,
+    })
+
+    return true
+  } catch (error) {
+    console.error('Error creating goods return:', error?.message || error)
+    return false
+  }
+}
+
+/**
+ * Reverse a transaction: marks it as reversed and adjusts inventory back.
+ * Buy reversal => subtract stock; Sell reversal => add stock back.
+ */
+export async function reverseTransaction(txn) {
+  try {
+    const { error: updateError } = await supabase
+      .from('transactions')
+      .update({ is_reversed: true })
+      .eq('id', txn.id)
+    if (updateError) throw updateError
+
+    // Reverse the inventory change
+    const delta = txn.transaction_type === 'buy'
+      ? -(txn.quantity || 0)
+      : (txn.quantity || 0)
+
+    if (txn.godown_id && txn.batch_code) {
+      await addInventoryEntry({
+        tile_id: txn.product_id,
+        godown_id: txn.godown_id,
+        batch_code: txn.batch_code,
+        location_in_godown: txn.location_in_godown || null,
+        boxes: delta,
+        price: txn.unit_price || 0,
+      })
+    }
+
+    return true
+  } catch (error) {
+    console.error('Error reversing transaction:', error)
+    return false
+  }
+}
+
+/**
+ * Permanently delete a transaction from the database.
+ */
+export async function deleteTransaction(txnId) {
+  try {
+    const { error } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', txnId)
+    if (error) throw error
+    return true
+  } catch (error) {
+    console.error('Error deleting transaction:', error)
+    return false
+  }
+}
+
+/**
  * Get all transactions with product details
  */
 export async function getAllTransactions() {
@@ -786,8 +1023,7 @@ export async function getAllTransactions() {
         *,
         products:product_id (
           product_name,
-          unit,
-          package_spec
+          unit
         ),
         godowns:godown_id (
           name
@@ -800,9 +1036,8 @@ export async function getAllTransactions() {
     // Flatten the nested structure
     return (data || []).map(txn => ({
       ...txn,
-      product_name: txn.products?.product_name || 'Unknown Product',
-      unit: txn.products?.unit || 'box',
-      package_spec: txn.products?.package_spec || null,
+      product_name: txn.products?.product_name || txn.product_name_snapshot || 'Unknown Product',
+      unit: txn.products?.unit || txn.product_unit_snapshot || 'box',
       godown_name: txn.godowns?.name || null,
     }))
   } catch (error) {

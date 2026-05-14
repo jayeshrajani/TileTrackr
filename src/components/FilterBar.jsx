@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { deleteFilterOption, addFilterOption, deleteCategory, createCategory } from '../services/inventoryService'
 
-function FilterDropdown({ label, options, selected, onChange }) {
+function FilterDropdown({ label, options, selected, onChange, isAdmin, fieldKey, onRefresh }) {
   const [open, setOpen]   = useState(false)
   const [search, setSearch] = useState('')
+  const [newVal, setNewVal] = useState('')
+  const [actionMsg, setActionMsg] = useState('')
   const ref               = useRef(null)
   const inputRef          = useRef(null)
 
@@ -122,39 +125,133 @@ function FilterDropdown({ label, options, selected, onChange }) {
               filtered.map(({ value, count }) => {
                 const checked = selected.includes(value)
                 return (
-                  <button
+                  <div
                     key={value}
-                    type="button"
-                    onClick={() => toggle(value)}
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-slate-50 ${
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-slate-50 ${
                       checked ? 'bg-indigo-50/50' : ''
                     }`}
                   >
-                    <span className={`w-4.5 h-4.5 rounded-md flex-shrink-0 flex items-center justify-center border-[1.5px] transition-all ${
-                      checked ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300 bg-white'
-                    }`}>
-                      {checked && (
-                        <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
-                          <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                    <button
+                      type="button"
+                      onClick={() => toggle(value)}
+                      className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                    >
+                      <span className={`w-4.5 h-4.5 rounded-md flex-shrink-0 flex items-center justify-center border-[1.5px] transition-all ${
+                        checked ? 'bg-indigo-500 border-indigo-500' : 'border-slate-300 bg-white'
+                      }`}>
+                        {checked && (
+                          <svg width="9" height="9" viewBox="0 0 10 10" fill="none">
+                            <path d="M2 5l2.5 2.5L8 3" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </span>
+                      <span className={`flex-1 text-sm truncate ${checked ? 'text-slate-900 font-medium' : 'text-slate-600'}`}>
+                        {value}
+                      </span>
+                      <span className="text-xs text-slate-400 tabular-nums">{count}</span>
+                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          setActionMsg('')
+                          let result
+                          if (fieldKey === 'category') {
+                            // Find category id from options - we pass it via extra data
+                            result = await deleteCategory(value)
+                          } else {
+                            result = await deleteFilterOption(null, fieldKey, value)
+                          }
+                          if (result.ok) {
+                            onRefresh?.()
+                          } else {
+                            setActionMsg(result.message)
+                          }
+                        }}
+                        className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                        title={`Delete ${value}`}
+                      >
+                        <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                          <path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                         </svg>
-                      )}
-                    </span>
-                    <span className={`flex-1 text-sm ${checked ? 'text-slate-900 font-medium' : 'text-slate-600'}`}>
-                      {value}
-                    </span>
-                    <span className="text-xs text-slate-400 tabular-nums">{count}</span>
-                  </button>
+                      </button>
+                    )}
+                  </div>
                 )
               })
             )}
           </div>
+
+          {/* Action message */}
+          {actionMsg && (
+            <div className="px-3 py-2 border-t border-slate-100 bg-red-50">
+              <p className="text-[11px] text-red-600 font-medium">{actionMsg}</p>
+            </div>
+          )}
+
+          {/* Add new option (admin only) */}
+          {isAdmin && (
+            <div className="border-t border-slate-100 p-2">
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={newVal}
+                  onChange={(e) => setNewVal(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && newVal.trim()) {
+                      setActionMsg('')
+                      let result
+                      if (fieldKey === 'category') {
+                        const created = await createCategory(newVal.trim())
+                        result = created ? { ok: true } : { ok: false, message: 'Failed to add.' }
+                      } else {
+                        result = await addFilterOption(fieldKey, newVal.trim())
+                      }
+                      if (result.ok) {
+                        setNewVal('')
+                        onRefresh?.()
+                      } else {
+                        setActionMsg(result.message)
+                      }
+                    }
+                  }}
+                  placeholder={`Add ${label.toLowerCase()}…`}
+                  className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 outline-none focus:border-indigo-300 focus:bg-white transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!newVal.trim()) return
+                    setActionMsg('')
+                    let result
+                    if (fieldKey === 'category') {
+                      const created = await createCategory(newVal.trim())
+                      result = created ? { ok: true } : { ok: false, message: 'Failed to add.' }
+                    } else {
+                      result = await addFilterOption(fieldKey, newVal.trim())
+                    }
+                    if (result.ok) {
+                      setNewVal('')
+                      onRefresh?.()
+                    } else {
+                      setActionMsg(result.message)
+                    }
+                  }}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 px-2 py-1.5 rounded-lg hover:bg-indigo-50 transition-colors"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-function FilterBar({ allTiles, filters, onChange, resultCount, totalCount }) {
+function FilterBar({ allTiles, filters, onChange, resultCount, totalCount, isAdmin, onRefresh }) {
   // Build option lists with counts - cascading based on selected filters
   const options = useMemo(() => {
     // Apply filters progressively for cascading
@@ -217,30 +314,45 @@ function FilterBar({ allTiles, filters, onChange, resultCount, totalCount }) {
           options={options.brand}
           selected={filters.brand}
           onChange={(v) => onChange({ ...filters, brand: v })}
+          isAdmin={isAdmin}
+          fieldKey="brand"
+          onRefresh={onRefresh}
         />
         <FilterDropdown
           label="Category"
           options={options.category}
           selected={filters.category}
           onChange={(v) => onChange({ ...filters, category: v })}
+          isAdmin={isAdmin}
+          fieldKey="category"
+          onRefresh={onRefresh}
         />
         <FilterDropdown
           label="Size"
           options={options.size}
           selected={filters.size}
           onChange={(v) => onChange({ ...filters, size: v })}
+          isAdmin={isAdmin}
+          fieldKey="size"
+          onRefresh={onRefresh}
         />
         <FilterDropdown
           label="Finish"
           options={options.finish}
           selected={filters.finish}
           onChange={(v) => onChange({ ...filters, finish: v })}
+          isAdmin={isAdmin}
+          fieldKey="finish"
+          onRefresh={onRefresh}
         />
         <FilterDropdown
           label="Grade"
           options={options.grade}
           selected={filters.grade}
           onChange={(v) => onChange({ ...filters, grade: v })}
+          isAdmin={isAdmin}
+          fieldKey="grade"
+          onRefresh={onRefresh}
         />
 
           {/* Favourites toggle */}

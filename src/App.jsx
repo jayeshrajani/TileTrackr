@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import AddInventoryModal from './components/AddInventoryModal'
 import GodownManager from './components/GodownManager'
+
 import SearchBar from './components/SearchBar'
 import FilterBar from './components/FilterBar'
 import LatestTilesGrid from './components/LatestTilesGrid'
 import UpdateInventoryPage from './components/UpdateInventoryPage'
 import TradesPage from './components/TradesPage'
+import AnalysisPage from './components/AnalysisPage'
+import AskTileTrackr from './components/AskTileTrackr'
+import DeepDivePage from './components/DeepDivePage'
 import { useDebouncedValue } from './hooks/useDebouncedValue'
 
 
@@ -303,24 +307,40 @@ function App() {
                 Godowns
               </button>
             )}
+            {isAdminLoggedIn && (
+              <button
+                onClick={() => setActiveTab('analysis')}
+                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
+                  activeTab === 'analysis'
+                    ? 'bg-white text-slate-900 shadow-apple-xs'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                Analysis
+              </button>
+            )}
+
           </nav>
 
-          {/* Admin area */}
-          {isAdminLoggedIn ? (
-            <button
-              onClick={onAdminSignOut}
-              className="text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 rounded-xl text-red-500 hover:bg-red-50 transition-all duration-200 flex-shrink-0 whitespace-nowrap"
-            >
-              Sign Out
-            </button>
-          ) : (
-            <button
-              onClick={() => { setLoginError(''); setIsLoginModalOpen(true) }}
-              className="btn-primary flex-shrink-0 py-2 px-4 sm:px-5 text-xs sm:text-sm whitespace-nowrap"
-            >
-              Admin
-            </button>
-          )}
+          {/* Ask TileTrackr + Admin area */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <AskTileTrackr allTiles={allTiles} godowns={godowns} />
+            {isAdminLoggedIn ? (
+              <button
+                onClick={onAdminSignOut}
+                className="text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 rounded-xl text-red-500 hover:bg-red-50 transition-all duration-200 flex-shrink-0 whitespace-nowrap"
+              >
+                Sign Out
+              </button>
+            ) : (
+              <button
+                onClick={() => { setLoginError(''); setIsLoginModalOpen(true) }}
+                className="btn-primary flex-shrink-0 py-2 px-4 sm:px-5 text-xs sm:text-sm whitespace-nowrap"
+              >
+                Admin
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -348,6 +368,8 @@ function App() {
               onChange={setFilters}
               resultCount={displayedTiles.length}
               totalCount={allTiles.length}
+              isAdmin={isAdminLoggedIn}
+              onRefresh={refetchTiles}
             />
 
             {/* In Stock Toggle */}
@@ -409,8 +431,17 @@ function App() {
           />
         )}
 
+
         {activeTab === 'trades' && isAdminLoggedIn && (
           <TradesPage onTransactionCreated={refetchTiles} />
+        )}
+
+        {activeTab === 'analysis' && isAdminLoggedIn && (
+          <AnalysisPage onOpenDeepDive={() => setActiveTab('deepdive')} />
+        )}
+
+        {activeTab === 'deepdive' && isAdminLoggedIn && (
+          <DeepDivePage onBack={() => setActiveTab('analysis')} />
         )}
       </main>
 
