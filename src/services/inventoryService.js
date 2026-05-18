@@ -116,7 +116,7 @@ export async function deleteCategory(nameOrId) {
       countQuery = countQuery.eq('category_id', nameOrId)
     } else {
       // Look up the category id by name first
-      const { data: cat } = await supabase.from('categories').select('id').eq('name', nameOrId).single()
+      const { data: cat } = await supabase.from('categories').select('id').eq('name', nameOrId).maybeSingle()
       if (cat) countQuery = countQuery.eq('category_id', cat.id)
     }
     const { count } = await countQuery
@@ -190,10 +190,12 @@ export async function deleteFilterOption(id, field, value) {
     const columnMap = { brand: 'brand', size: 'size', finish: 'finish', grade: 'grade' }
     const column = columnMap[field]
     if (column && value) {
+      // Escape SQL wildcard characters in the filter value
+      const escapedValue = value.replace(/[%_\\]/g, '\\$&')
       const { count } = await supabase
         .from('products')
         .select('id', { count: 'exact', head: true })
-        .ilike(column, value)
+        .ilike(column, escapedValue)
       if (count && count > 0) {
         return { ok: false, message: `Cannot delete — ${count} product${count > 1 ? 's' : ''} still use this ${field}.` }
       }
@@ -295,6 +297,10 @@ export async function deleteProduct(productId) {
     const transactionCount = transactionResult.count || 0
 
     if (transactionCount > 0) {
+      // Try soft-detach: save snapshots then nullify product_id
+      let detached = false
+
+      // Attempt to store product name/unit snapshots on the transaction row
       const { error: snapshotError } = await supabase
         .from('transactions')
         .update({
@@ -303,19 +309,25 @@ export async function deleteProduct(productId) {
         })
         .eq('product_id', productId)
 
-      if (snapshotError) throw snapshotError
+      if (!snapshotError) {
+        const { error: detachError } = await supabase
+          .from('transactions')
+          .update({ product_id: null })
+          .eq('product_id', productId)
 
-      const { error: detachError } = await supabase
-        .from('transactions')
-        .update({ product_id: null })
-        .eq('product_id', productId)
-
-      if (detachError) {
-        return {
-          ok: false,
-          code: detachError.code || 'TRANSACTION_DETACH_FAILED',
-          message: 'Transactions can be kept only after the database allows product_id to be nullable and stores product snapshots on the transaction row.',
+        if (!detachError) {
+          detached = true
         }
+      }
+
+      // If soft-detach failed, delete the transactions instead
+      if (!detached) {
+        const { error: txnDeleteError } = await supabase
+          .from('transactions')
+          .delete()
+          .eq('product_id', productId)
+
+        if (txnDeleteError) throw txnDeleteError
       }
     }
 
@@ -355,18 +367,49 @@ export async function deleteProduct(productId) {
 
 /**
  * Delete a godown by id
+ * Pre-checks for dependent inventory and transactions before deletion
  */
 export async function deleteGodown(id) {
   try {
+    // Check for dependent inventory
+    const { count: inventoryCount } = await supabase
+      .from('inventory')
+      .select('id', { count: 'exact', head: true })
+      .eq('godown_id', id)
+
+    if (inventoryCount && inventoryCount > 0) {
+      return {
+        ok: false,
+        message: `Cannot delete — ${inventoryCount} inventory ${inventoryCount > 1 ? 'entries' : 'entry'} still exist in this godown.`,
+      }
+    }
+
+    // Check for dependent transactions
+    const { count: transactionCount } = await supabase
+      .from('transactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('godown_id', id)
+
+    if (transactionCount && transactionCount > 0) {
+      return {
+        ok: false,
+        message: `Cannot delete — ${transactionCount} transaction${transactionCount > 1 ? 's' : ''} reference this godown.`,
+      }
+    }
+
+    // Safe to delete
     const { error } = await supabase
       .from('godowns')
       .delete()
       .eq('id', id)
     if (error) throw error
-    return true
+    return { ok: true }
   } catch (error) {
     console.error('Error deleting godown:', error)
-    return false
+    return {
+      ok: false,
+      message: error.message || 'Failed to delete godown.',
+    }
   }
 }
 /**
@@ -402,14 +445,15 @@ export async function updateStockQuick(productId, delta) {
     if (updateError) throw updateError
 
     // Log the change
-    await supabase.from('stock_logs').insert({
+    const { error: logError } = await supabase.from('stock_logs').insert({
       inventory_id: entry.id,
       change_type: delta > 0 ? 'ADD' : 'REMOVE',
-      quantity: delta,
+      quantity: Math.abs(delta),
       previous_quantity: entry.stock_quantity,
       new_quantity: newQuantity,
       created_at: new Date().toISOString(),
     })
+    if (logError) throw logError
   } catch (error) {
     console.error('Error in updateStockQuick:', error)
   }
@@ -710,7 +754,7 @@ export async function addInventoryEntry(data) {
 
     if (existing) {
       // Update existing
-      const newQuantity = existing.stock_quantity + stockQuantity
+      const newQuantity = existing.stock_quantity + Number(stockQuantity)
       
       // Prevent negative stock
       if (newQuantity < 0) {
@@ -735,7 +779,7 @@ export async function addInventoryEntry(data) {
       if (updateError) throw updateError
 
       // Log the change
-      await supabase.from('stock_logs').insert({
+      const { error: logError } = await supabase.from('stock_logs').insert({
         inventory_id: existing.id,
         change_type: stockQuantity > 0 ? 'ADD' : 'REMOVE',
         quantity: Math.abs(stockQuantity),
@@ -743,6 +787,7 @@ export async function addInventoryEntry(data) {
         new_quantity: newQuantity,
         created_at: new Date().toISOString(),
       })
+      if (logError) throw logError
     } else {
       // Create new
       const { data: newEntry, error: insertError } = await supabase
@@ -763,14 +808,15 @@ export async function addInventoryEntry(data) {
       if (insertError) throw insertError
 
       // Log the change
-      await supabase.from('stock_logs').insert({
+      const { error: logError } = await supabase.from('stock_logs').insert({
         inventory_id: newEntry.id,
         change_type: 'ADD',
-        quantity: stockQuantity,
+        quantity: Math.abs(stockQuantity),
         previous_quantity: 0,
         new_quantity: stockQuantity,
         created_at: new Date().toISOString(),
       })
+      if (logError) throw logError
     }
 
     return true
@@ -815,7 +861,7 @@ export async function updateInventoryEntry(data) {
     const delta = newQuantity - current.stock_quantity
 
     // Log the change
-    await supabase.from('stock_logs').insert({
+    const { error: logError } = await supabase.from('stock_logs').insert({
       inventory_id: inventoryId,
       change_type: delta >= 0 ? 'ADD' : 'REMOVE',
       quantity: Math.abs(delta),
@@ -823,6 +869,7 @@ export async function updateInventoryEntry(data) {
       new_quantity: newQuantity,
       created_at: new Date().toISOString(),
     })
+    if (logError) throw logError
 
     return true
   } catch (error) {
@@ -944,7 +991,7 @@ export async function createGoodsReturn({ originalTxn, quantity, condition, reas
     if (error) throw error
 
     // Add stock back
-    await addInventoryEntry({
+    const inventoryResult = await addInventoryEntry({
       tile_id: originalTxn.product_id,
       godown_id: godown_id || originalTxn.godown_id,
       batch_code: batch_code || originalTxn.batch_code || 'RETURN',
@@ -952,6 +999,10 @@ export async function createGoodsReturn({ originalTxn, quantity, condition, reas
       boxes: quantity,
       price: originalTxn.unit_price || 0,
     })
+
+    if (!inventoryResult) {
+      throw new Error('Failed to add stock back to inventory')
+    }
 
     return true
   } catch (error) {
@@ -978,7 +1029,7 @@ export async function reverseTransaction(txn) {
       : (txn.quantity || 0)
 
     if (txn.godown_id && txn.batch_code) {
-      await addInventoryEntry({
+      const inventoryResult = await addInventoryEntry({
         tile_id: txn.product_id,
         godown_id: txn.godown_id,
         batch_code: txn.batch_code,
@@ -986,6 +1037,9 @@ export async function reverseTransaction(txn) {
         boxes: delta,
         price: txn.unit_price || 0,
       })
+      if (!inventoryResult) {
+        throw new Error('Failed to adjust inventory when reversing transaction')
+      }
     }
 
     return true
