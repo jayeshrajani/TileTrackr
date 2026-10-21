@@ -11,7 +11,7 @@ function AddInventoryModal({ tile, batches, godowns, onClose, onSave }) {
   const [saveError, setSaveError] = useState('')
 
   const unit = tile?.unit || 'box'
-  const unitPlural = unit.endsWith('s') ? unit : `${unit}s`
+  const unitPlural = unit === 'box' ? 'boxes' : unit.endsWith('s') ? unit : `${unit}s`
   const selectedGodown = godowns.find((godown) => godown.id === godownId)
   const godownLocations = Array.isArray(selectedGodown?.locations) ? selectedGodown.locations : []
 
@@ -77,21 +77,18 @@ function AddInventoryModal({ tile, batches, godowns, onClose, onSave }) {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-end sm:items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
+    <div className="modal-root z-40" role="dialog" aria-modal="true" aria-labelledby="update-stock-title">
+      <div className="modal-backdrop" onClick={onClose} />
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-md bg-white rounded-2xl shadow-apple-modal p-7 space-y-6"
-        onClick={(e) => e.stopPropagation()}
+        className="modal-panel sm:max-w-md"
       >
         {/* Header */}
-        <div className="flex items-start justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">Update Stock</h2>
+        <div className="modal-header">
+          <div className="min-w-0">
+            <h2 id="update-stock-title" className="text-lg font-semibold text-slate-900 tracking-tight">Update Stock</h2>
             {tile && (
-              <p className="text-sm text-slate-500 mt-0.5">
+              <p className="text-[13px] text-slate-500 mt-0.5 truncate">
                 {tile.product_name || tile.name}{tile.size ? ` · ${tile.size}` : ''}
               </p>
             )}
@@ -100,29 +97,30 @@ function AddInventoryModal({ tile, batches, godowns, onClose, onSave }) {
             type="button"
             onClick={onClose}
             disabled={loading}
-            className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors flex-shrink-0"
+            className="icon-btn -mr-2"
             aria-label="Close"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-              <path d="M1 1l8 8M9 1L1 9" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round"/>
+            <svg width="14" height="14" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
             </svg>
           </button>
         </div>
 
+        <div className="px-5 sm:px-6 py-5 space-y-5">
         {/* Batch type toggle */}
-        <div>
-          <label className="label">Batch Type</label>
-          <div className="flex p-1 bg-slate-100 rounded-xl gap-1">
+        <div className="flex p-1 bg-slate-100 rounded-xl gap-1" role="tablist" aria-label="Batch type">
             {['existing', 'new'].map((m) => (
               <button
                 key={m}
                 type="button"
+                role="tab"
+                aria-selected={mode === m}
                 onClick={() => {
                   setMode(m)
                   setQuantity(0) // Reset quantity when switching modes
                 }}
                 disabled={loading || (m === 'existing' && batches.length === 0)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all duration-200 capitalize disabled:opacity-40 ${
+                className={`flex-1 h-10 rounded-lg text-sm font-medium transition-all duration-200 disabled:opacity-40 ${
                   mode === m
                     ? 'bg-white text-slate-900 shadow-apple-xs'
                     : 'text-slate-500 hover:text-slate-700'
@@ -131,7 +129,6 @@ function AddInventoryModal({ tile, batches, godowns, onClose, onSave }) {
                 {m === 'existing' ? 'Existing Batch' : 'New Batch'}
               </button>
             ))}
-          </div>
         </div>
 
         {/* Batch fields */}
@@ -206,111 +203,109 @@ function AddInventoryModal({ tile, batches, godowns, onClose, onSave }) {
               ))}
             </select>
             {godownId && godownLocations.length === 0 && (
-              <p className="mt-2 text-xs text-amber-600">No saved locations in this godown yet. Add them from the Godowns tab first.</p>
+              <p className="mt-2 text-[13px] text-amber-700">No saved locations in this godown yet. Add them from the Godowns tab first.</p>
             )}
           </div>
 
           {/* Quantity adjuster with +/- buttons */}
           <div>
-            <label className="label">Adjust Quantity</label>
-            
-            {/* Current Stock Display */}
-            {mode === 'existing' && (
-              <div className="bg-slate-50 rounded-xl px-4 py-3 mb-3 border border-slate-100">
-                <p className="text-xs text-slate-400 mb-1">Current Stock</p>
-                <p className="text-2xl font-bold text-slate-900">{currentStock} <span className="text-base font-medium text-slate-400">{unitPlural}</span></p>
-              </div>
-            )}
+            <div className="flex items-baseline justify-between mb-2">
+              <label className="label mb-0">Adjust Quantity</label>
+              {mode === 'existing' && (
+                <p className="text-[13px] text-slate-500">
+                  Current: <span className="font-semibold text-slate-900 tabular-nums">{currentStock} {unitPlural}</span>
+                </p>
+              )}
+            </div>
             
             {/* +/- Controls */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-stretch gap-2">
               <button
                 type="button"
                 onClick={decrementQuantity}
                 disabled={loading || (mode === 'new' && quantity <= 0) || (mode === 'existing' && quantity <= -currentStock)}
-                className="w-12 h-12 rounded-xl bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shadow-apple-xs"
+                className="w-14 h-14 rounded-xl border border-slate-200 bg-white text-slate-700 flex items-center justify-center hover:bg-slate-50 active:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                aria-label="Decrease quantity"
               >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M3 8h10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
               </button>
               
-              <div className="flex-1">
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={quantity}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value) || 0
-                      if (mode === 'new' && val < 0) return
-                      if (mode === 'existing' && val < -currentStock) return
-                      setQuantity(val)
-                    }}
-                    className="input-modern text-center text-lg font-bold"
-                    disabled={loading}
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">{unitPlural}</span>
-                </div>
-                {mode === 'existing' && (
-                  <div className="mt-2 text-center">
-                    <p className="text-xs text-slate-400">
-                      New Stock: <span className={`font-bold ${newStock < 0 ? 'text-red-500' : newStock > currentStock ? 'text-emerald-600' : 'text-slate-800'}`}>
-                        {newStock} {unitPlural}
-                      </span>
-                    </p>
-                  </div>
-                )}
+              <div className="flex-1 relative">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={quantity}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value) || 0
+                    if (mode === 'new' && val < 0) return
+                    if (mode === 'existing' && val < -currentStock) return
+                    setQuantity(val)
+                  }}
+                  className="input-modern h-14 text-center !text-xl font-semibold tabular-nums pr-14"
+                  disabled={loading}
+                  aria-label="Quantity change"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-slate-400 pointer-events-none">{unitPlural}</span>
               </div>
               
               <button
                 type="button"
                 onClick={incrementQuantity}
                 disabled={loading}
-                className="w-12 h-12 rounded-xl bg-emerald-500 text-white flex items-center justify-center hover:bg-emerald-600 transition-colors disabled:opacity-40 shadow-apple-xs"
+                className="w-14 h-14 rounded-xl bg-slate-900 text-white flex items-center justify-center hover:bg-slate-800 active:bg-slate-700 transition-colors disabled:opacity-40"
+                aria-label="Increase quantity"
               >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
               </button>
             </div>
             
-            {quantity !== 0 && (
-              <div className="mt-3 text-center">
-                <p className={`text-sm font-semibold ${quantity > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {quantity > 0 ? `Adding ${quantity} ${unitPlural}` : `Subtracting ${Math.abs(quantity)} ${unitPlural}`}
-                </p>
+            {(quantity !== 0 || mode === 'existing') && (
+              <div className="mt-3 flex items-center justify-between rounded-xl bg-slate-50 px-4 py-2.5 text-[13px]">
+                <span className={`font-medium ${quantity > 0 ? 'text-emerald-700' : quantity < 0 ? 'text-red-600' : 'text-slate-500'}`}>
+                  {quantity > 0 ? `Adding ${quantity} ${unitPlural}` : quantity < 0 ? `Subtracting ${Math.abs(quantity)} ${unitPlural}` : 'No change yet'}
+                </span>
+                {mode === 'existing' && (
+                  <span className="text-slate-500">
+                    New: <span className={`font-semibold tabular-nums ${newStock < 0 ? 'text-red-600' : 'text-slate-900'}`}>{newStock} {unitPlural}</span>
+                  </span>
+                )}
               </div>
             )}
           </div>
         </div>
 
         {saveError && (
-          <p className="text-xs font-medium text-red-600 bg-red-50 rounded-xl px-4 py-2.5 border border-red-100">{saveError}</p>
+          <p className="text-[13px] font-medium text-red-700 bg-red-50 rounded-xl px-4 py-2.5 border border-red-100" role="alert">{saveError}</p>
         )}
 
         {/* Actions */}
-        <div className="flex gap-3 pt-1">
+        <div className="modal-footer">
           <button
             type="button"
             onClick={onClose}
             disabled={loading}
-            className="btn-secondary flex-1 justify-center py-3"
+            className="btn-secondary py-3"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={loading || quantity === 0}
-            className={`flex-1 justify-center py-3 font-semibold rounded-xl transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed ${
+            className={`btn-base py-3 text-white ${
               quantity > 0
-                ? 'bg-emerald-500 text-white hover:bg-emerald-600 border-emerald-500 shadow-apple-xs'
+                ? 'bg-emerald-600 hover:bg-emerald-700'
                 : quantity < 0
-                ? 'bg-red-500 text-white hover:bg-red-600 border-red-500 shadow-apple-xs'
-                : 'bg-slate-100 text-slate-400'
+                ? 'bg-red-600 hover:bg-red-700'
+                : '!bg-slate-100 !text-slate-400'
             }`}
           >
             {loading ? 'Saving…' : quantity === 0 ? 'No Change' : quantity > 0 ? `Add ${quantity} ${unitPlural}` : `Subtract ${Math.abs(quantity)} ${unitPlural}`}
           </button>
+        </div>
         </div>
       </form>
     </div>

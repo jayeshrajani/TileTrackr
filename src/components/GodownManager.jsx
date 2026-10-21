@@ -26,93 +26,75 @@ function DeleteModal({ godown, onCancel, onDeleted }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" aria-modal="true" role="dialog">
+    <div className="modal-root" aria-modal="true" role="alertdialog">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={phase !== 'deleting' ? onCancel : undefined} />
+      <div className="modal-backdrop" onClick={phase !== 'deleting' ? onCancel : undefined} />
 
-      <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-sm overflow-hidden">
+      <div className="modal-panel sm:max-w-sm">
 
-        {/* Coloured top bar */}
-        <div className={`h-1 w-full ${ phase === 'blocked' ? 'bg-amber-400' : 'bg-red-500' }`} />
-
-        <div className="p-7 space-y-5">
+        <div className="p-6 space-y-5">
           {/* Icon + Title */}
-          <div className="flex items-start gap-4">
-            <div className={`w-11 h-11 rounded-xl flex-shrink-0 flex items-center justify-center ${ phase === 'blocked' ? 'bg-amber-50' : 'bg-red-50' }`}>
-              {phase === 'blocked' ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
-                    stroke="#f59e0b" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <polyline points="3 6 5 6 21 6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round"/>
-                  <path d="M19 6l-1 14H6L5 6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M10 11v6M14 11v6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round"/>
-                  <path d="M9 6V4h6v2" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              )}
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-base font-bold text-slate-900 leading-snug">
-                {phase === 'blocked' ? 'Cannot Delete Godown' : `Delete "${godown.name}"?`}
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">{godown.name}</p>
-            </div>
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center ${ phase === 'blocked' ? 'bg-amber-50' : 'bg-red-50' }`}>
+            {phase === 'blocked' ? (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+                  stroke="#d97706" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/>
+              </svg>
+            )}
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold text-slate-900 leading-snug">
+              {phase === 'blocked' ? 'Cannot delete godown' : `Delete "${godown.name}"?`}
+            </h2>
+            <p className="text-[13px] text-slate-500">{godown.name}</p>
           </div>
 
           {/* Body */}
           {phase === 'loading' && (
-            <div className="flex items-center gap-2 text-sm text-slate-400">
-              <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-900 rounded-full animate-spin" />
               Checking stock data…
             </div>
           )}
 
           {phase === 'blocked' && info && (
             <div className="space-y-3">
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-slate-600 leading-relaxed">
                 This godown still has active stock. Remove or reassign it before deleting.
               </p>
               {/* Impact summary */}
-              <div className="rounded-xl bg-amber-50 border border-amber-100 divide-y divide-amber-100">
+              <div className="rounded-xl bg-amber-50 border border-amber-200/70 divide-y divide-amber-200/70">
                 <div className="flex justify-between items-center px-4 py-2.5">
-                  <span className="text-xs text-amber-700 font-medium">Products affected</span>
-                  <span className="text-sm font-bold text-amber-900">{info.products}</span>
+                  <span className="text-[13px] text-amber-800">Products affected</span>
+                  <span className="text-sm font-semibold text-amber-900 tabular-nums">{info.products}</span>
                 </div>
                 <div className="flex justify-between items-center px-4 py-2.5">
-                  <span className="text-xs text-amber-700 font-medium">Stock entries</span>
-                  <span className="text-sm font-bold text-amber-900">{info.rows}</span>
+                  <span className="text-[13px] text-amber-800">Stock entries</span>
+                  <span className="text-sm font-semibold text-amber-900 tabular-nums">{info.rows}</span>
                 </div>
                 <div className="flex justify-between items-center px-4 py-2.5">
-                  <span className="text-xs text-amber-700 font-medium">Total stock (boxes)</span>
-                  <span className="text-sm font-bold text-amber-900">{info.stock.toLocaleString()}</span>
+                  <span className="text-[13px] text-amber-800">Total stock (boxes)</span>
+                  <span className="text-sm font-semibold text-amber-900 tabular-nums">{info.stock.toLocaleString()}</span>
                 </div>
               </div>
             </div>
           )}
 
           {(phase === 'safe' || phase === 'deleting') && (
-            <div className="space-y-3">
-              <p className="text-sm text-slate-600">
-                This godown has <span className="font-semibold">no stock</span> and will be permanently removed.
-                This action <span className="font-semibold text-red-500">cannot be undone</span>.
-              </p>
-              {/* Visual warning stripe */}
-              <div className="rounded-xl bg-red-50 border border-red-100 px-4 py-3 flex items-center gap-3">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0">
-                  <circle cx="8" cy="8" r="7" stroke="#ef4444" strokeWidth="1.5"/>
-                  <path d="M8 5v3.5M8 11h.01" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-                <p className="text-xs text-red-600 font-medium">Deleting a godown is irreversible.</p>
-              </div>
-            </div>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              This godown has <span className="font-semibold text-slate-900">no stock</span> and will be permanently removed.
+              This action <span className="font-semibold text-red-600">cannot be undone</span>.
+            </p>
           )}
 
           {/* Actions */}
-          <div className="flex gap-2 pt-1">
+          <div className={`grid gap-3 pt-1 ${phase === 'blocked' || phase === 'loading' ? 'grid-cols-1' : 'grid-cols-2'}`}>
             {phase !== 'deleting' && (
-              <button type="button" onClick={onCancel} className="btn-secondary flex-1">
+              <button type="button" onClick={onCancel} className="btn-secondary py-3">
                 {phase === 'blocked' ? 'OK, got it' : 'Cancel'}
               </button>
             )}
@@ -121,7 +103,7 @@ function DeleteModal({ godown, onCancel, onDeleted }) {
                 type="button"
                 onClick={handleDelete}
                 disabled={phase === 'deleting'}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold transition-opacity hover:bg-red-600 disabled:opacity-60 flex items-center justify-center gap-2"
+                className={`btn-danger py-3 ${phase === 'deleting' ? 'col-span-2' : ''}`}
               >
                 {phase === 'deleting' ? (
                   <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> Deleting…</>
@@ -233,7 +215,7 @@ function GodownManager({ godowns, onGodownDeleted, onGodownAdded, onGodownUpdate
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       {pendingGodown && (
         <DeleteModal
           godown={pendingGodown}
@@ -244,85 +226,86 @@ function GodownManager({ godowns, onGodownDeleted, onGodownAdded, onGodownUpdate
 
       {/* Page header */}
       <div>
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500 mb-1.5">Storage Locations</p>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Godowns</h1>
-        <p className="text-sm text-slate-500 mt-1">Manage each godown and its saved internal locations in one place.</p>
+        <h1 className="page-title">Godowns</h1>
+        <p className="page-subtitle">Manage each godown and its saved internal locations.</p>
       </div>
 
       {locationError && (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+        <div className="rounded-xl border border-amber-200/70 bg-amber-50 px-4 py-3" role="alert">
           <p className="text-sm font-medium text-amber-900">{locationError}</p>
-          <p className="text-xs text-amber-700 mt-1">Recommended schema: add a locations jsonb column on godowns instead of creating a separate locations table.</p>
+          <p className="text-[13px] text-amber-800 mt-1">Recommended schema: add a locations jsonb column on godowns instead of creating a separate locations table.</p>
         </div>
       )}
 
       {/* Godown list */}
       {godowns.length === 0 ? (
-        <div className="card py-16 text-center">
-          <p className="text-sm font-semibold text-slate-600">No godowns added yet</p>
-          <p className="text-xs text-slate-400 mt-1">Add your first storage location below</p>
+        <div className="card py-16 px-6 text-center">
+          <p className="text-sm font-semibold text-slate-700">No godowns added yet</p>
+          <p className="text-[13px] text-slate-500 mt-1">Add your first storage location below</p>
         </div>
       ) : (
-        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-          {godowns.map((godown) => (
+        <div className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+          {godowns.map((godown) => {
+            const locationCount = Array.isArray(godown.locations) ? godown.locations.length : 0
+            return (
             <div
               key={godown.id}
-              className="card px-5 py-5 space-y-4"
+              className="card p-4 sm:p-5 space-y-4"
             >
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                      <path d="M1 6l6-4 6 4v6a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V6z" stroke="#6366f1" strokeWidth="1.4" fill="none"/>
-                      <path d="M5 13V8h4v5" stroke="#6366f1" strokeWidth="1.4" strokeLinecap="round"/>
+                  <div className="w-10 h-10 rounded-xl bg-clay-50 text-clay-700 flex items-center justify-center flex-shrink-0">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 21V9l9-5 9 5v12M7 21v-8h10v8M7 17h10"/>
                     </svg>
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">{godown.name}</p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {(Array.isArray(godown.locations) ? godown.locations.length : 0)} saved location{(Array.isArray(godown.locations) ? godown.locations.length : 0) === 1 ? '' : 's'}
+                    <p className="text-[15px] font-semibold text-slate-900 truncate">{godown.name}</p>
+                    <p className="text-[13px] text-slate-500">
+                      {locationCount} saved location{locationCount === 1 ? '' : 's'}
                     </p>
                   </div>
                 </div>
                 <button
-                  className="btn-danger px-3 py-1.5 text-xs flex-shrink-0"
+                  type="button"
+                  className="icon-btn hover:text-red-600 hover:bg-red-50 -mr-1.5"
                   onClick={() => setPendingGodown(godown)}
+                  aria-label={`Delete ${godown.name}`}
+                  title="Delete godown"
                 >
-                  Delete
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M7 6l1 14h8l1-14"/></svg>
                 </button>
               </div>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Locations inside this godown</p>
-                </div>
-
                 {Array.isArray(godown.locations) && godown.locations.length ? (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {godown.locations.map((location) => {
                       const locationKey = `${godown.id}:${location}`
                       return (
                       <span
                         key={locationKey}
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700"
+                        className="inline-flex items-center gap-0.5 h-8 pl-3 pr-1 rounded-full bg-slate-100 text-[13px] font-medium text-slate-700"
                       >
                         {location}
                         <button
                           type="button"
                           onClick={() => handleDeleteLocation(godown.id, location)}
                           disabled={deletingLocationKey === locationKey}
-                          className="text-slate-400 transition-colors hover:text-red-500 disabled:opacity-50"
+                          className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 transition-colors hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
                           aria-label={`Delete ${location}`}
                         >
-                          {deletingLocationKey === locationKey ? '…' : '×'}
+                          {deletingLocationKey === locationKey ? '…' : (
+                            <svg width="8" height="8" viewBox="0 0 8 8" fill="none" aria-hidden="true"><path d="M1 1l6 6M7 1L1 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                          )}
                         </button>
                       </span>
                       )
                     })}
                   </div>
                 ) : (
-                  <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-3 py-3 text-xs text-slate-400">
-                    No saved locations yet for this godown.
+                  <div className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-[13px] text-slate-500">
+                    No saved locations yet.
                   </div>
                 )}
 
@@ -330,40 +313,43 @@ function GodownManager({ godowns, onGodownDeleted, onGodownAdded, onGodownUpdate
                   <input
                     value={locationDrafts[godown.id] || ''}
                     onChange={(event) => updateLocationDraft(godown.id, event.target.value)}
-                    placeholder="e.g. A Rack 3"
-                    className="input-modern flex-1"
+                    placeholder="Add location, e.g. A Rack 3"
+                    aria-label={`New location in ${godown.name}`}
+                    className="input-modern flex-1 min-w-0"
                     disabled={savingLocationFor === godown.id}
                   />
                   <button
                     type="button"
                     onClick={() => handleAddLocation(godown.id)}
                     disabled={savingLocationFor === godown.id || !(locationDrafts[godown.id] || '').trim()}
-                    className="btn-primary flex-shrink-0 px-4"
+                    className="btn-secondary flex-shrink-0 px-4"
                   >
                     {savingLocationFor === godown.id ? '…' : 'Add'}
                   </button>
                 </div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
       {/* Add godown form */}
-      <div className="card p-6">
-        <p className="text-sm font-bold text-slate-800 mb-4">Add New Godown</p>
-        <form onSubmit={onAdd} className="flex gap-3">
+      <div className="card p-4 sm:p-5">
+        <p className="text-[15px] font-semibold text-slate-900 mb-3">Add new godown</p>
+        <form onSubmit={onAdd} className="flex gap-2">
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
             placeholder="e.g. Main Warehouse"
-            className="input-modern flex-1"
+            aria-label="Godown name"
+            className="input-modern flex-1 min-w-0"
             disabled={loading}
           />
           <button
             type="submit"
             disabled={loading || !name.trim()}
-            className="btn-primary flex-shrink-0 px-6"
+            className="btn-primary flex-shrink-0 px-5"
           >
             {loading ? '…' : 'Add'}
           </button>

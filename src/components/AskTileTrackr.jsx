@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 // ─── Utilities ───
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)]
@@ -58,7 +59,6 @@ const KEYWORDS = {
   categories: ['category', 'categories', 'types', 'tile types', 'product types', 'what types', 'classification'],
   godowns: ['godown', 'godowns', 'warehouse', 'warehouses', 'storage', 'location', 'locations', 'where stored', 'where is', 'stored where', 'which godown', 'storage location', 'go down'],
   top_stock: ['most stock', 'highest stock', 'top stock', 'maximum stock', 'best selling', 'most available', 'plenty', 'abundant', 'highest quantity', 'top products'],
-  value: ['value', 'worth', 'total value', 'inventory value', 'how much worth', 'valuation', 'price', 'cost'],
   recent: ['recent', 'latest', 'last added', 'new arrivals', 'newly added', 'just added', 'latest tiles', 'new tiles', 'recent products'],
   specific_brand: null, // dynamic
   specific_size: null, // dynamic
@@ -93,9 +93,6 @@ function detectIntent(msg, allTiles, godowns) {
 
   // Total / summary
   if (KEYWORDS.total.some((k) => m.includes(k))) return { intent: 'total_count' }
-
-  // Value
-  if (KEYWORDS.value.some((k) => m.includes(k)) && !m.includes('stock')) return { intent: 'value' }
 
   // Favorites
   if (KEYWORDS.favorites.some((k) => m.includes(k))) return { intent: 'favorites' }
@@ -265,14 +262,6 @@ function generateResponse(intent, allTiles, godowns) {
       return `📊 **Inventory Overview**\n\nTotal products: **${allTiles.length}**\nIn stock: **${inStock}** ✅\nOut of stock: **${oos}** ${oos > 0 ? '⚠️' : ''}\nTotal boxes across all: **${totalBoxes.toLocaleString()}**`
     }
 
-    case 'value': {
-      // Basic value estimate from whatever price data is available
-      const withPrice = allTiles.filter((t) => t.price && t.totalBoxes > 0)
-      if (withPrice.length === 0) return "I don't have price data for your tiles yet. Add prices during transactions to see inventory value."
-      const totalValue = withPrice.reduce((s, t) => s + (t.price * t.totalBoxes), 0)
-      return `💰 **Estimated Inventory Value**\n\nProducts with pricing: **${withPrice.length}** of ${allTiles.length}\nEstimated value: **₹${totalValue.toLocaleString()}**\n\n_Note: Based on last recorded prices. Actual value may differ._`
-    }
-
     case 'favorites': {
       const favs = allTiles.filter((t) => t.is_favorite)
       if (favs.length === 0) return pick(["No favorites yet. Star tiles from the inventory to track them here.", "You haven't starred any tiles yet. Use the ★ icon to add favorites."])
@@ -402,7 +391,7 @@ function renderMarkdown(text) {
 }
 
 // ─── Component ───
-export default function AskTileTrackr({ allTiles = [], godowns = [] }) {
+export default function AskTileTrackr({ allTiles = [], godowns = [], variant = 'header' }) {
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState([
     { role: 'bot', text: "Hi! I'm **Ask TileTrackr** — your inventory assistant. Ask me about stock, brands, or search for any tile!" }
@@ -435,84 +424,123 @@ export default function AskTileTrackr({ allTiles = [], godowns = [] }) {
 
   return (
     <>
-      {/* Trigger pill button */}
+      {/* Trigger */}
+      {variant === 'sidebar' ? (
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          aria-expanded={isOpen}
+          className={`w-full flex items-center gap-3 h-11 px-3 rounded-xl text-sm font-medium transition-colors ${
+            isOpen ? 'bg-white/[0.08] text-white' : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-100'
+          }`}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+          Ask TileTrackr
+        </button>
+      ) : (
       <button
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-300 shadow-sm border ${
+        aria-expanded={isOpen}
+        aria-label="Ask TileTrackr"
+        className={`inline-flex items-center justify-center gap-1.5 h-9 w-9 sm:w-auto sm:px-3 rounded-xl text-sm font-medium transition-colors ${
           isOpen
-            ? 'bg-indigo-100 text-indigo-700 border-indigo-200 shadow-md'
-            : 'bg-gradient-to-r from-indigo-50 to-violet-50 text-indigo-600 border-indigo-100 hover:shadow-md hover:border-indigo-200 hover:scale-[1.02]'
+            ? 'bg-clay-50 text-clay-700'
+            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
         }`}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         </svg>
-        <span className="hidden sm:inline">Ask TileTrackr</span>
-        <span className="sm:hidden">Ask</span>
+        <span className="hidden sm:inline">Ask</span>
       </button>
+      )}
 
-      {/* Chat panel */}
-      {isOpen && (
-        <div className="fixed top-16 right-4 z-50 w-[340px] sm:w-[380px] max-h-[70vh] bg-white rounded-2xl shadow-2xl border border-slate-200/80 flex flex-col overflow-hidden animate-in">
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-indigo-500 to-violet-600 text-white flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-              </svg>
-              <span className="font-semibold text-sm">Ask TileTrackr</span>
-            </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center hover:bg-white/30 transition-colors"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M1 1l8 8M9 1L1 9" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            </button>
-          </div>
-
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed ${
-                  msg.role === 'user'
-                    ? 'bg-indigo-500 text-white rounded-br-md'
-                    : 'bg-slate-100 text-slate-700 rounded-bl-md'
-                }`}>
-                  {msg.role === 'bot' ? renderMarkdown(msg.text) : msg.text}
+      {/* Rendered in body so the header's backdrop-filter doesn't trap position:fixed */}
+      {isOpen && createPortal(
+        <>
+          <div className="modal-backdrop fixed z-50 sm:hidden" onClick={() => setIsOpen(false)} aria-hidden="true" />
+          <div
+            role="dialog"
+            aria-label="Ask TileTrackr"
+            className={`fixed z-50 inset-x-0 bottom-0 h-[85dvh] rounded-t-3xl sm:inset-x-auto sm:h-[560px] sm:max-h-[75vh] sm:w-[380px] sm:rounded-2xl bg-white shadow-apple-modal sm:border sm:border-slate-200/80 flex flex-col overflow-hidden [animation:sheetUp_.32s_cubic-bezier(.32,.72,0,1)] sm:[animation:popIn_.18s_ease-out] ${
+              variant === 'sidebar' ? 'sm:bottom-4 sm:left-[272px]' : 'sm:bottom-auto sm:top-[76px] sm:right-4'
+            }`}
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3 pl-5 pr-3 py-3 border-b border-slate-100 flex-shrink-0">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center flex-shrink-0">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-[15px] text-slate-900 leading-tight">Ask TileTrackr</p>
+                  <p className="text-xs text-slate-500">Inventory assistant</p>
                 </div>
               </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Input */}
-          <div className="p-3 border-t border-slate-100 flex-shrink-0">
-            <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
-              <input
-                ref={inputRef}
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleSend() }}
-                placeholder="Ask about stock, brands..."
-                className="flex-1 bg-transparent text-sm text-slate-700 placeholder-slate-400 outline-none"
-              />
               <button
-                onClick={handleSend}
-                disabled={!input.trim()}
-                className="w-7 h-7 rounded-lg bg-indigo-500 flex items-center justify-center text-white disabled:opacity-30 hover:bg-indigo-600 transition-colors flex-shrink-0"
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="icon-btn"
+                aria-label="Close assistant"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="22" y1="2" x2="11" y2="13"/>
-                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                <svg width="14" height="14" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                  <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
                 </svg>
               </button>
             </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 space-y-3 min-h-0" aria-live="polite">
+              {messages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed break-words ${
+                    msg.role === 'user'
+                      ? 'bg-slate-900 text-white rounded-br-md'
+                      : 'bg-slate-100 text-slate-800 rounded-bl-md'
+                  }`}>
+                    {msg.role === 'bot' ? renderMarkdown(msg.text) : msg.text}
+                  </div>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Input */}
+            <div className="p-3 border-t border-slate-100 flex-shrink-0">
+              <div className="flex items-center gap-2 bg-slate-100 rounded-full pl-4 pr-1.5 h-12 border border-transparent focus-within:bg-white focus-within:border-clay-400 focus-within:ring-4 focus-within:ring-clay-500/10 transition-all">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  enterKeyHint="send"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleSend() }}
+                  placeholder="Ask about stock, brands..."
+                  aria-label="Message"
+                  className="flex-1 min-w-0 bg-transparent text-sm text-slate-900 placeholder-slate-500 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={!input.trim()}
+                  className="w-9 h-9 rounded-full bg-slate-900 flex items-center justify-center text-white disabled:opacity-30 hover:bg-slate-800 transition-colors flex-shrink-0"
+                  aria-label="Send"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 19V5M5 12l7-7 7 7"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
+        </>,
+        document.body
       )}
     </>
   )

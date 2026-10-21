@@ -2,19 +2,20 @@ import { useState } from 'react'
 import ExpandableTileCard from './ExpandableTileCard'
 import { getTileInventory } from '../services/inventoryService'
 import { formatQty } from '../utils/formatQty'
+import { getStockStatus, getSwatchStyle } from '../utils/tileVisual'
 
 function getGradeTagClass(grade) {
   const normalizedGrade = grade?.trim().toLowerCase()
 
   if (normalizedGrade === 'standard') {
-    return 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+    return 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200/70'
   }
 
   if (normalizedGrade === 'commercial') {
-    return 'border border-amber-200 bg-amber-50 text-amber-700'
+    return 'bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-200/70'
   }
 
-  return 'border border-indigo-200 bg-indigo-50 text-indigo-600'
+  return 'bg-clay-50 text-clay-700 ring-1 ring-inset ring-clay-200/70'
 }
 
 function getPackageCount(value, fallback) {
@@ -69,7 +70,7 @@ function LatestTilesGrid({ tiles, onToggleFavorite, isAdminLoggedIn, onQuickAdd,
 
   if (tiles.length === 0) {
     return (
-      <div className="card py-20 text-center">
+      <div className="card py-16 px-6 text-center">
         <div className="w-12 h-12 rounded-2xl bg-slate-100 mx-auto mb-4 flex items-center justify-center">
           <svg width="22" height="22" viewBox="0 0 20 20" fill="none" aria-hidden="true">
             <rect x="2" y="2" width="7" height="7" rx="1.5" fill="#cbd5e1"/>
@@ -78,131 +79,131 @@ function LatestTilesGrid({ tiles, onToggleFavorite, isAdminLoggedIn, onQuickAdd,
             <rect x="11" y="11" width="7" height="7" rx="1.5" fill="#cbd5e1" fillOpacity="0.3"/>
           </svg>
         </div>
-        <p className="text-sm font-semibold text-slate-600">No tiles found</p>
-        <p className="text-xs text-slate-400 mt-1">Try adjusting your search or filters</p>
+        <p className="text-sm font-semibold text-slate-700">No tiles found</p>
+        <p className="text-[13px] text-slate-500 mt-1">Try adjusting your search or filters</p>
       </div>
     )
   }
 
-  const gridItems = tiles.flatMap((tile) => {
+  const cards = tiles.map((tile) => {
     const isSelected = expandedId === tile.id
     const isLoading = loadingId === tile.id
 
     const packageCount = getPackageCount(tile.package_spec, tile.pieces_per_box)
+    const status = getStockStatus(tile.totalBoxes)
 
-    const card = (
+    return (
       <button
         key={tile.id}
         type="button"
         onClick={() => handleTileClick(tile)}
         disabled={isLoading}
-        className={`card group relative flex flex-col overflow-hidden text-left transition-all duration-200 hover:shadow-apple-sm hover:-translate-y-px disabled:opacity-60 ${
-          isSelected ? 'ring-2 ring-indigo-500 shadow-apple-sm border-transparent' : 'hover:border-slate-200'
+        aria-expanded={isSelected}
+        className={`group card overflow-hidden flex flex-col text-left transition-[box-shadow,transform,border-color] duration-200 hover:shadow-apple hover:-translate-y-0.5 hover:border-slate-300 active:translate-y-0 disabled:opacity-60 ${
+          isSelected ? 'ring-2 ring-slate-900 border-transparent' : ''
         }`}
       >
-        <div className="p-4 pb-3 flex flex-col gap-2.5">
-          {/* Top row: favorite + loading */}
-          <div className="flex items-center justify-between">
-            {isLoading ? (
-              <div className="w-4 h-4 border-[2px] border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <span /> 
-            )}
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => { e.stopPropagation(); onToggleFavorite(tile.id) }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onToggleFavorite(tile.id) }
-              }}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors"
-              aria-label={tile.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
-            >
-              {tile.is_favorite ? (
-                <svg width="14" height="14" viewBox="0 0 15 15" fill="#ef4444" aria-hidden="true">
-                  <path d="M7.5 13.5S1 9.8 1 5.25a3.75 3.75 0 0 1 6.5-2.5 3.75 3.75 0 0 1 6.5 2.5C14 9.8 7.5 13.5 7.5 13.5z"/>
-                </svg>
-              ) : (
-                <svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="#cbd5e1" strokeWidth="1.4" aria-hidden="true">
-                  <path d="M7.5 13.5S1 9.8 1 5.25a3.75 3.75 0 0 1 6.5-2.5 3.75 3.75 0 0 1 6.5 2.5C14 9.8 7.5 13.5 7.5 13.5z"/>
-                </svg>
-              )}
+        {/* Swatch preview */}
+        <div className="relative h-24 sm:h-28 overflow-hidden" style={getSwatchStyle(tile)}>
+          <span className="absolute inset-0 bg-gradient-to-t from-black/[0.12] via-transparent to-transparent" aria-hidden="true" />
+          {tile.grade && (
+            <span className={`absolute left-2.5 top-2.5 inline-flex items-center h-6 px-2 rounded-md text-[11px] font-medium capitalize shadow-apple-xs ${getGradeTagClass(tile.grade)}`}>
+              {tile.grade.toLowerCase()}
             </span>
-          </div>
-
-          {/* Name & brand */}
-          <div>
-            {tile.brand && (
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5 line-clamp-1">{tile.brand}</p>
-            )}
-            <p className="text-sm font-semibold text-slate-800 line-clamp-2 leading-snug">
-              {tile.product_name || tile.name}
-            </p>
-            {tile.grade && (
-              <span className={`mt-2 inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${getGradeTagClass(tile.grade)}`}>
-                {tile.grade}
-              </span>
-            )}
-            {packageCount != null && (
-              <p className="mt-1 text-xs text-slate-500">Pack: {packageCount} pcs/box</p>
-            )}
-            <p className="mt-1.5 text-xs font-semibold text-indigo-600">
-              Stock: {formatQty(tile.totalBoxes || 0, packageCount, tile.unit || 'box')}
-            </p>
-          </div>
-
-          {/* Size + chevron row */}
-          <div className="flex items-center justify-between gap-1 mt-auto pt-1">
-            {tile.size ? (
-              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-slate-100 text-[10px] font-semibold text-slate-500">
-                {tile.size}
-              </span>
-            ) : <span />}
-            <div className={`transition-transform duration-200 flex-shrink-0 ${isSelected ? 'rotate-180' : ''}`}>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                <path d="M2 3.5l3 3 3-3" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          )}
+          {tile.size && (
+            <span className="absolute left-2.5 bottom-2.5 inline-flex items-center h-6 px-2 rounded-md bg-white/90 backdrop-blur text-[11px] font-medium text-slate-700 tabular-nums shadow-apple-xs">
+              {tile.size}
+            </span>
+          )}
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); onToggleFavorite(tile.id) }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onToggleFavorite(tile.id) }
+            }}
+            className="absolute right-2 top-2 w-9 h-9 flex items-center justify-center rounded-full bg-white/90 backdrop-blur shadow-apple-xs hover:bg-white hover:scale-105 transition-transform"
+            aria-label={tile.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+          >
+            {isLoading ? (
+              <span className="w-4 h-4 border-[2px] border-slate-300 border-t-slate-900 rounded-full animate-spin" />
+            ) : tile.is_favorite ? (
+              <svg width="16" height="16" viewBox="0 0 15 15" fill="#dc2626" aria-hidden="true">
+                <path d="M7.5 13.5S1 9.8 1 5.25a3.75 3.75 0 0 1 6.5-2.5 3.75 3.75 0 0 1 6.5 2.5C14 9.8 7.5 13.5 7.5 13.5z"/>
               </svg>
-            </div>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 15 15" fill="none" stroke="#475569" strokeWidth="1.3" aria-hidden="true">
+                <path d="M7.5 13.5S1 9.8 1 5.25a3.75 3.75 0 0 1 6.5-2.5 3.75 3.75 0 0 1 6.5 2.5C14 9.8 7.5 13.5 7.5 13.5z"/>
+              </svg>
+            )}
+          </span>
+        </div>
+
+        <div className="p-3.5 sm:p-4 flex flex-col flex-1 min-w-0">
+          <p className="text-xs font-medium text-slate-500 truncate min-h-[16px]">{tile.brand || ''}</p>
+          <p className="mt-0.5 text-[15px] font-semibold text-slate-900 line-clamp-2 leading-snug group-hover:text-clay-800 transition-colors">
+            {tile.product_name || tile.name}
+          </p>
+
+          <div className="mt-auto pt-3">
+            <p className={`flex items-center gap-1.5 text-[15px] font-semibold tabular-nums leading-tight ${status.key === 'out' ? 'text-slate-400' : 'text-slate-900'}`}>
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${status.dot}`} title={status.label} aria-hidden="true" />
+              <span className="truncate">{formatQty(tile.totalBoxes || 0, packageCount, tile.unit || 'box')}</span>
+            </p>
+            <p className="text-[11px] text-slate-500 mt-1 pl-3.5">
+              {status.key === 'ok' ? (packageCount != null ? `${packageCount} pcs/box` : status.label) : status.label}
+            </p>
           </div>
         </div>
       </button>
     )
-
-    if (!isSelected) return [card]
-
-    // ── Inline expansion panel (spans full grid width) ──
-    const panel = (
-      <div
-        key={`panel-${tile.id}`}
-        className="col-span-full card border-indigo-200 overflow-hidden"
-      >
-        {expandedInventory ? (
-          <ExpandableTileCard
-            tile={expandedInventory.tile}
-            batches={expandedInventory.batches}
-            totalBoxes={expandedInventory.totalBoxes}
-            onToggleFavorite={onToggleFavorite}
-            onQuickAdd={() => onQuickAdd(expandedInventory)}
-            isAdminLoggedIn={isAdminLoggedIn}
-            onCollapse={handleCollapse}
-            onStockUpdated={handleRefreshExpanded}
-            onDataChange={handleDataChange}
-          />
-        ) : (
-          <div className="py-12 flex items-center justify-center">
-            <div className="w-6 h-6 border-[2.5px] border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          </div>
-        )}
-      </div>
-    )
-
-    return [card, panel]
   })
 
+  const previewTile = tiles.find((t) => t.id === expandedId)
+
   return (
-    <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-      {gridItems}
-    </div>
+    <>
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
+        {cards}
+      </div>
+
+      {/* Details: bottom sheet on phones, side drawer on desktop */}
+      {expandedId && (
+        <div className="fixed inset-0 z-40 !m-0 flex items-end lg:items-stretch lg:justify-end" role="dialog" aria-modal="true" aria-label="Tile details">
+          <div className="modal-backdrop" onClick={handleCollapse} />
+          <div
+            className="relative w-full lg:w-[540px] max-h-[92dvh] lg:max-h-none lg:h-full bg-white rounded-t-3xl lg:rounded-none shadow-apple-modal overflow-y-auto overscroll-contain [animation:sheetUp_.32s_cubic-bezier(.32,.72,0,1)] lg:[animation:drawerIn_.32s_cubic-bezier(.32,.72,0,1)]"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            {expandedInventory ? (
+              <ExpandableTileCard
+                tile={expandedInventory.tile}
+                batches={expandedInventory.batches}
+                totalBoxes={expandedInventory.totalBoxes}
+                onToggleFavorite={onToggleFavorite}
+                onQuickAdd={() => onQuickAdd(expandedInventory)}
+                isAdminLoggedIn={isAdminLoggedIn}
+                onCollapse={handleCollapse}
+                onStockUpdated={handleRefreshExpanded}
+                onDataChange={handleDataChange}
+              />
+            ) : (
+              <div aria-busy="true">
+                <div className="h-40 lg:h-56 animate-pulse" style={previewTile ? getSwatchStyle(previewTile) : undefined} />
+                <div className="p-5 sm:p-6 space-y-3 animate-pulse">
+                  <div className="h-3 w-24 rounded bg-slate-200" />
+                  <div className="h-6 w-2/3 rounded bg-slate-200" />
+                  <div className="grid grid-cols-2 gap-2 pt-3">
+                    {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 rounded-xl bg-slate-100" />)}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

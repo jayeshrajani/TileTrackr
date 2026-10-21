@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import SearchBar from './SearchBar'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { getSwatchStyle } from '../utils/tileVisual'
 import { searchTiles, getLatestTiles, getTileInventory, getAllCategories, createCategory, createProduct, getProductFieldOptions, getAllGodowns, addInventoryEntry, getAllTiles, updateProduct, deleteProduct } from '../services/inventoryService'
 
 const EMPTY_FORM = {
   product_name: '', brand: '', size: '', finish: '', grade: '', unit: 'box', category_id: '',
   package_spec: '',
   // Initial stock (all optional)
-  godown_id: '', batch_code: '', location_in_godown: '', qty: '', price: '',
+  godown_id: '', batch_code: '', location_in_godown: '', qty: '',
 }
 
 const parsePackageCount = (value) => {
@@ -64,19 +65,19 @@ function ComboField({ label, value, onChange, suggestions = [], placeholder = ''
   return (
     <div ref={containerRef} className={`relative ${open ? 'z-40' : 'z-0'}`}>
       <label className="label">{label}</label>
-      <div className={`flex items-center gap-2 input-modern pr-2 ${ open ? 'ring-2 ring-indigo-500/20 border-indigo-400' : '' }`}>
+      <div className={`flex items-center gap-2 input-modern pr-2 ${ open ? 'ring-4 ring-clay-500/10 border-clay-500' : '' }`}>
         <input
           type="text"
           value={query}
           onChange={handleInput}
           onFocus={() => setOpen(true)}
           placeholder={placeholder}
-          className="flex-1 bg-transparent outline-none text-sm text-slate-900 placeholder:text-slate-400"
+          className="flex-1 min-w-0 bg-transparent outline-none text-sm text-slate-900 placeholder:text-slate-400"
         />
-        <div className="ml-2 flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center flex-shrink-0 -my-1">
           {query && (
             <button type="button" onClick={() => select('')}
-              className="text-slate-400 hover:text-slate-600"
+              className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600"
               aria-label={`Clear ${label}`}
             >
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -87,7 +88,7 @@ function ComboField({ label, value, onChange, suggestions = [], placeholder = ''
           <button
             type="button"
             onClick={() => setOpen((prev) => !prev)}
-            className="text-slate-400 hover:text-slate-600"
+            className="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600"
             aria-label={`Toggle ${label} options`}
           >
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
@@ -193,7 +194,7 @@ function CategoryComboField({ label, value, onChange, categories = [] }) {
   return (
     <div ref={containerRef} className={`relative ${open ? 'z-40' : 'z-0'}`}>
       <label className="label">{label}</label>
-      <div className={`flex items-center gap-2 input-modern pr-2 cursor-pointer ${ open ? 'ring-2 ring-indigo-500/20 border-indigo-400' : '' }`}
+      <div className={`flex items-center gap-2 input-modern pr-2 cursor-pointer ${ open ? 'ring-4 ring-clay-500/10 border-clay-500' : '' }`}
         onClick={() => setOpen(!open)}
       >
         <span className="flex-1 text-sm text-slate-900">
@@ -365,7 +366,6 @@ function AddProductModal({ onClose, onCreated }) {
         batch_code: form.batch_code.trim(),
         location_in_godown: form.location_in_godown || null,
         boxes:      Number(form.qty),
-        price:      form.price !== '' ? Number(form.price) : 0,
       })
     }
 
@@ -374,25 +374,20 @@ function AddProductModal({ onClose, onCreated }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" aria-modal="true" role="dialog">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+    <div className="modal-root" aria-modal="true" role="dialog" aria-labelledby="add-product-title">
+      <div className="modal-backdrop" onClick={onClose} />
+      <div className="modal-panel sm:max-w-3xl">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl z-10">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500">admin</p>
-            <h2 className="text-lg font-bold text-slate-900">Add New Product</h2>
-          </div>
-          <button type="button" onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 1l8 8M9 1L1 9" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round"/></svg>
+        <div className="modal-header">
+          <h2 id="add-product-title" className="text-lg font-semibold text-slate-900">Add New Product</h2>
+          <button type="button" onClick={onClose} className="icon-btn -mr-2" aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
           </button>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+        <form onSubmit={handleSubmit} className="px-5 sm:px-6 py-5 space-y-4">
 
           {/* Product name */}
           <div>
@@ -472,10 +467,10 @@ function AddProductModal({ onClose, onCreated }) {
           </div>
 
           {/* ── Initial Stock ── */}
-          <div className="border-t border-slate-100 pt-4 space-y-4">
+          <div className="border-t border-slate-100 pt-5 space-y-4">
             <div>
-              <p className="text-sm font-bold text-slate-800">Initial Stock <span className="text-xs font-normal text-slate-400 ml-1">(optional)</span></p>
-              <p className="text-xs text-slate-400 mt-0.5">Fill in to record opening stock right away.</p>
+              <p className="text-sm font-semibold text-slate-900">Initial stock <span className="text-[13px] font-normal text-slate-500 ml-1">(optional)</span></p>
+              <p className="text-[13px] text-slate-500 mt-0.5">Fill in to record opening stock right away.</p>
             </div>
 
             {/* Godown + Batch + Location */}
@@ -512,29 +507,25 @@ function AddProductModal({ onClose, onCreated }) {
                   ))}
                 </select>
                 {form.godown_id && godownLocations.length === 0 && (
-                  <p className="mt-2 text-xs text-amber-600">No saved locations in this godown yet. Add them from the Godowns tab first.</p>
+                  <p className="mt-2 text-[13px] text-amber-700">No saved locations in this godown yet. Add them from the Godowns tab first.</p>
                 )}
               </div>
             </div>
 
-            {/* Qty + Price */}
+            {/* Qty */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">Quantity</label>
-                <input className="input-modern" type="number" min="1" value={form.qty} onChange={setInput('qty')} placeholder="0" />
-              </div>
-              <div>
-                <label className="label">Price per unit <span className="text-slate-400 font-normal">(optional)</span></label>
-                <input className="input-modern" type="number" min="0" step="0.01" value={form.price} onChange={setInput('price')} placeholder="0.00" />
+                <input className="input-modern" type="number" inputMode="numeric" min="1" value={form.qty} onChange={setInput('qty')} placeholder="0" />
               </div>
             </div>
           </div>
 
-          {error && <p className="text-xs font-medium text-red-500">{error}</p>}
+          {error && <p className="text-[13px] font-medium text-red-700 bg-red-50 border border-red-100 rounded-xl px-3.5 py-2.5" role="alert">{error}</p>}
 
-          <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary flex-1">
+          <div className="modal-footer">
+            <button type="button" onClick={onClose} className="btn-secondary py-3">Cancel</button>
+            <button type="submit" disabled={saving} className="btn-primary py-3">
               {saving ? 'Saving…' : 'Add Product'}
             </button>
           </div>
@@ -619,22 +610,17 @@ function EditProductModal({ tile, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-      <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl z-10">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500">admin</p>
-            <h2 className="text-lg font-bold text-slate-900">Edit Product</h2>
-          </div>
-          <button type="button" onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1 1l8 8M9 1L1 9" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round"/></svg>
+    <div className="modal-root" role="dialog" aria-modal="true" aria-labelledby="edit-product-title-2">
+      <div className="modal-backdrop" onClick={onClose} />
+      <div className="modal-panel sm:max-w-lg">
+        <div className="modal-header">
+          <h2 id="edit-product-title-2" className="text-lg font-semibold text-slate-900">Edit Product</h2>
+          <button type="button" onClick={onClose} className="icon-btn -mr-2" aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+        <form onSubmit={handleSubmit} className="px-5 sm:px-6 py-5 space-y-4">
           <ComboField
             label="Product Name"
             value={form.product_name}
@@ -643,7 +629,7 @@ function EditProductModal({ tile, onClose, onSaved }) {
             placeholder="e.g. Glossy White Floor Tile"
           />
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-3">
             <ComboField
               label="Brand"
               value={form.brand}
@@ -659,7 +645,7 @@ function EditProductModal({ tile, onClose, onSaved }) {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-3">
             <ComboField
               label="Size"
               value={form.size}
@@ -703,11 +689,11 @@ function EditProductModal({ tile, onClose, onSaved }) {
             </div>
           </div>
 
-          {error && <p className="text-xs font-medium text-red-500">{error}</p>}
+          {error && <p className="text-[13px] font-medium text-red-700 bg-red-50 border border-red-100 rounded-xl px-3.5 py-2.5" role="alert">{error}</p>}
 
-          <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary flex-1">
+          <div className="modal-footer">
+            <button type="button" onClick={onClose} className="btn-secondary py-3">Cancel</button>
+            <button type="submit" disabled={saving} className="btn-primary py-3">
               {saving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
@@ -719,35 +705,29 @@ function EditProductModal({ tile, onClose, onSaved }) {
 
 function DeleteProductModal({ tile, onClose, onConfirm, deleting }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-      <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="h-1 w-full bg-red-500" />
-        <div className="p-7 space-y-5">
-          <div className="flex items-start gap-4">
-            <div className="w-11 h-11 rounded-xl bg-red-50 flex-shrink-0 flex items-center justify-center">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <polyline points="3 6 5 6 21 6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round"/>
-                <path d="M19 6l-1 14H6L5 6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M10 11v6M14 11v6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round"/>
-                <path d="M9 6V4h6v2" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-base font-bold text-slate-900 leading-snug">Delete &quot;{tile.product_name || tile.name}&quot;?</h2>
-              <p className="text-xs text-slate-400 mt-0.5">{tile.brand}{tile.size ? ` · ${tile.size}` : ''}</p>
-            </div>
+    <div className="modal-root" role="alertdialog" aria-modal="true">
+      <div className="modal-backdrop" onClick={onClose} />
+      <div className="modal-panel sm:max-w-sm">
+        <div className="p-6 space-y-5">
+          <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/>
+            </svg>
           </div>
-          <p className="text-sm text-slate-600">This action <span className="font-semibold text-red-500">cannot be undone</span>. Use edit if you only need to change product details.</p>
-          <div className="flex gap-2 pt-1">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1" disabled={deleting}>Cancel</button>
+          <div className="space-y-1.5">
+            <h2 className="text-lg font-semibold text-slate-900 leading-snug">Delete &quot;{tile.product_name || tile.name}&quot;?</h2>
+            <p className="text-[13px] text-slate-500">{tile.brand}{tile.size ? ` · ${tile.size}` : ''}</p>
+          </div>
+          <p className="text-sm text-slate-600 leading-relaxed">This action <span className="font-semibold text-red-600">cannot be undone</span>. Use edit if you only need to change product details.</p>
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <button type="button" onClick={onClose} className="btn-secondary py-3" disabled={deleting}>Cancel</button>
             <button
               type="button"
               onClick={onConfirm}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-60"
+              className="btn-danger py-3"
               disabled={deleting}
             >
-              {deleting ? 'Deleting...' : 'Delete Product'}
+              {deleting ? 'Deleting...' : 'Delete'}
             </button>
           </div>
         </div>
@@ -837,52 +817,55 @@ function UpdateInventoryPage({ onQuickAdd, onProductCreated, onDataChange }) {
         />
       )}
 
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500 mb-1.5">Admin</p>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Update Inventory</h1>
-          <p className="text-sm text-slate-500 mt-1">Select a tile to add or update its stock.</p>
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="page-title">Update Inventory</h1>
+          <p className="page-subtitle">Select a tile to add or update its stock.</p>
         </div>
         <button
           type="button"
           onClick={() => setShowAddModal(true)}
-          className="btn-primary flex-shrink-0 flex items-center gap-2 mt-1"
+          className="btn-primary flex-shrink-0 px-4"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
           </svg>
-          Add Product
+          <span className="hidden xs:inline">Add Product</span>
+          <span className="xs:hidden">Add</span>
         </button>
       </div>
 
       <SearchBar query={query} onChange={setQuery} />
 
       {loading ? (
-        <div className="flex items-center justify-center py-32">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-[2.5px] border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-slate-400">Loading...</p>
-          </div>
+        <div className="card divide-y divide-slate-100 overflow-hidden" aria-busy="true" aria-label="Loading products">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="px-4 py-3.5 flex items-center gap-3 animate-pulse">
+              <div className="w-10 h-10 rounded-xl bg-slate-100" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3 w-1/4 rounded bg-slate-100" />
+                <div className="h-4 w-2/3 rounded bg-slate-200" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : tiles.length === 0 ? (
-        <div className="card py-16 text-center">
-          <p className="text-sm font-semibold text-slate-600">No tiles found</p>
-          <p className="text-xs text-slate-400 mt-1">Try adjusting your search</p>
+        <div className="card py-16 px-6 text-center">
+          <p className="text-sm font-semibold text-slate-700">No tiles found</p>
+          <p className="text-[13px] text-slate-500 mt-1">Try adjusting your search</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="card divide-y divide-slate-100 overflow-hidden">
           {tiles.map((tile) => (
             <div
               key={tile.id}
-              className="w-full card px-5 py-4 flex items-center gap-4 hover:shadow-apple-sm hover:border-slate-200 transition-all duration-200"
+              className="w-full pl-4 pr-2 sm:pr-3 py-3 flex items-center gap-3 hover:bg-slate-50/70 transition-colors"
             >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-100 to-slate-50 border border-slate-100 flex-shrink-0 flex items-center justify-center">
-                {loadingId === tile.id ? (
-                  <div className="w-4 h-4 border-[2px] border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <span className="text-xs font-bold text-slate-400 uppercase">
-                    {(tile.brand || tile.product_name || '?')[0]}
-                  </span>
+              <div className="relative w-11 h-11 rounded-xl flex-shrink-0 overflow-hidden ring-1 ring-inset ring-black/5" style={getSwatchStyle(tile)}>
+                {loadingId === tile.id && (
+                  <div className="absolute inset-0 bg-white/70 flex items-center justify-center">
+                    <div className="w-4 h-4 border-[2px] border-slate-300 border-t-slate-900 rounded-full animate-spin" />
+                  </div>
                 )}
               </div>
 
@@ -890,70 +873,51 @@ function UpdateInventoryPage({ onQuickAdd, onProductCreated, onDataChange }) {
                 type="button"
                 onClick={() => handleTileSelect(tile)}
                 disabled={loadingId === tile.id}
-                className="flex-1 min-w-0 text-left disabled:opacity-60"
+                className="flex-1 min-w-0 text-left disabled:opacity-60 py-0.5"
               >
-                {tile.brand && <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 leading-none mb-1">{tile.brand}</p>}
-                <p className="text-sm font-semibold text-slate-800 truncate">
+                <p className="text-[15px] font-semibold text-slate-900 truncate">
                   {tile.product_name || tile.name}
                 </p>
-                {(parsePackageCount(tile.package_spec ?? tile.pieces_per_box) != null) && (
-                  <p className="text-xs text-slate-500 mt-1">Pack: {parsePackageCount(tile.package_spec ?? tile.pieces_per_box)} pcs/box</p>
-                )}
+                <p className="text-[13px] text-slate-500 truncate mt-0.5">
+                  {[
+                    tile.brand,
+                    tile.size,
+                    parsePackageCount(tile.package_spec ?? tile.pieces_per_box) != null ? `${parsePackageCount(tile.package_spec ?? tile.pieces_per_box)} pcs/box` : null,
+                  ].filter(Boolean).join(' · ')}
+                </p>
               </button>
 
-              {tile.size && (
-                <span className="hidden sm:inline-flex items-center px-3 py-1 rounded-lg bg-slate-100 text-xs font-semibold text-slate-500 flex-shrink-0">
-                  {tile.size}
-                </span>
-              )}
-
-              <div className="hidden sm:flex items-center gap-2 flex-shrink-0">
+              <div className="flex items-center flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => setEditingTile(tile)}
-                  className="btn-ghost px-3 py-1.5 text-xs"
+                  className="icon-btn"
+                  aria-label={`Edit ${tile.product_name || tile.name}`}
+                  title="Edit"
                 >
-                  Edit
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4ZM13.5 6.5l4 4"/></svg>
                 </button>
                 <button
                   type="button"
                   onClick={() => setDeletingTile(tile)}
-                  className="px-3 py-1.5 text-xs font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                  className="icon-btn hover:text-red-600 hover:bg-red-50"
+                  aria-label={`Delete ${tile.product_name || tile.name}`}
+                  title="Delete"
                 >
-                  Delete
-                </button>
-              </div>
-
-              <div className="sm:hidden flex items-center gap-1 flex-shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setEditingTile(tile)}
-                  className="w-8 h-8 rounded-lg hover:bg-slate-100 transition-colors flex items-center justify-center"
-                  aria-label="Edit product"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 20h4l10-10-4-4L4 16v4Z" stroke="#6366f1" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M12 6l4 4" stroke="#6366f1" strokeWidth="1.8" strokeLinecap="round"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M7 6l1 14h8l1-14"/></svg>
                 </button>
                 <button
                   type="button"
-                  onClick={() => setDeletingTile(tile)}
-                  className="w-8 h-8 rounded-lg hover:bg-red-50 transition-colors flex items-center justify-center"
-                  aria-label="Delete product"
+                  onClick={() => handleTileSelect(tile)}
+                  disabled={loadingId === tile.id}
+                  className="icon-btn disabled:opacity-60"
+                  aria-label={`Open update for ${tile.product_name || tile.name}`}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 6h18" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round"/><path d="M8 6V4h8v2" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><path d="M7 6l1 14h8l1-14" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                    <path d="M4.5 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
                 </button>
               </div>
-
-              <button
-                type="button"
-                onClick={() => handleTileSelect(tile)}
-                disabled={loadingId === tile.id}
-                className="w-7 h-7 rounded-lg hover:bg-slate-100 transition-colors flex items-center justify-center flex-shrink-0 disabled:opacity-60"
-                aria-label={`Open update for ${tile.product_name || tile.name}`}
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M4.5 2l4 4-4 4" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
             </div>
           ))}
         </div>

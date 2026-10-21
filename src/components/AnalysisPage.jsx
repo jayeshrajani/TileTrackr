@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getAllTransactions } from '../services/inventoryService'
 import { jsPDF } from 'jspdf'
+import TransactionCard, { TransactionList } from './TransactionCard'
+
+const sumQty = (list) => list.reduce((sum, t) => sum + (Number(t.quantity) || 0), 0)
+const fmtQty = (n) => Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+
+const isoDaysAgo = (days) => {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  return d.toISOString().split('T')[0]
+}
 
 function AnalysisPage({ onOpenDeepDive }) {
   const [transactions, setTransactions] = useState([])
@@ -70,14 +80,23 @@ function AnalysisPage({ onOpenDeepDive }) {
     setCurrentPage(1)
   }, [searchQuery, dateFrom, dateTo])
 
-  // Summary stats
+  // Summary stats (quantities only)
   const stats = useMemo(() => {
     const buys = filteredTransactions.filter(t => t.transaction_type === 'buy' && !t.is_reversed)
     const sells = filteredTransactions.filter(t => t.transaction_type === 'sell' && !t.is_reversed)
+    const returns = filteredTransactions.filter(t => t.transaction_type === 'return_in' && !t.is_reversed)
     const reversed = filteredTransactions.filter(t => t.is_reversed)
-    const totalBuyValue = buys.reduce((sum, t) => sum + (t.total_price || 0), 0)
-    const totalSellValue = sells.reduce((sum, t) => sum + (t.total_price || 0), 0)
-    return { buys: buys.length, sells: sells.length, reversed: reversed.length, totalBuyValue, totalSellValue }
+    const boughtQty = sumQty(buys)
+    const soldQty = sumQty(sells)
+    const returnedQty = sumQty(returns)
+    return {
+      buys: buys.length,
+      sells: sells.length,
+      reversed: reversed.length,
+      boughtQty,
+      soldQty,
+      netQty: boughtQty + returnedQty - soldQty,
+    }
   }, [filteredTransactions])
 
   // Download filtered transactions as PDF report
@@ -136,9 +155,9 @@ function AnalysisPage({ onOpenDeepDive }) {
     doc.setTextColor(50, 50, 70)
     const summaryData = [
       ['Total Transactions', String(txns.length)],
-      ['Purchases', `${summary.buys} trades  |  Rs. ${summary.totalBuyValue.toLocaleString('en-IN')}`],
-      ['Sales', `${summary.sells} trades  |  Rs. ${summary.totalSellValue.toLocaleString('en-IN')}`],
-      ['Net Profit/Loss', `Rs. ${(summary.totalSellValue - summary.totalBuyValue).toLocaleString('en-IN')}`],
+      ['Purchases', `${summary.buys} trades  |  ${fmtQty(summary.boughtQty)} units in`],
+      ['Sales', `${summary.sells} trades  |  ${fmtQty(summary.soldQty)} units out`],
+      ['Net Units', `${fmtQty(summary.netQty)} (in - out)`],
       ['Reversed', `${summary.reversed} transactions`],
     ]
     summaryData.forEach(([label, value]) => {
@@ -166,13 +185,12 @@ function AnalysisPage({ onOpenDeepDive }) {
     doc.setTextColor(80, 80, 100)
     doc.setFillColor(245, 246, 250)
     doc.rect(margin, y - 4, contentWidth, 7, 'F')
-    const cols = [margin, margin + 20, margin + 36, margin + 82, margin + 118, margin + 140, margin + 160]
+    const cols = [margin, margin + 20, margin + 38, margin + 118, margin + 164]
     doc.text('DATE', cols[0], y)
     doc.text('TYPE', cols[1], y)
     doc.text('PRODUCT', cols[2], y)
     doc.text('PARTY', cols[3], y)
     doc.text('QTY', cols[4], y)
-    doc.text('AMOUNT (Rs.)', cols[5], y)
     y += 7
 
     // Table rows
@@ -193,7 +211,6 @@ function AnalysisPage({ onOpenDeepDive }) {
         doc.text('PRODUCT', cols[2], y)
         doc.text('PARTY', cols[3], y)
         doc.text('QTY', cols[4], y)
-        doc.text('AMOUNT (Rs.)', cols[5], y)
         y += 7
         doc.setFont('helvetica', 'normal')
         doc.setTextColor(40, 40, 60)
@@ -208,10 +225,9 @@ function AnalysisPage({ onOpenDeepDive }) {
       const date = new Date(txn.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
       doc.text(date, cols[0], y)
       doc.text(txn.transaction_type === 'buy' ? 'BUY' : txn.transaction_type === 'return_in' ? 'RETURN' : 'SELL', cols[1], y)
-      doc.text((txn.product_name || '-').substring(0, 28), cols[2], y)
-      doc.text((txn.party_name || '-').substring(0, 22), cols[3], y)
-      doc.text(String(txn.quantity || 0), cols[4], y)
-      doc.text(txn.total_price ? `Rs. ${txn.total_price.toLocaleString('en-IN')}` : '-', cols[5], y)
+      doc.text((txn.product_name || '-').substring(0, 44), cols[2], y)
+      doc.text((txn.party_name || '-').substring(0, 26), cols[3], y)
+      doc.text(fmtQty(txn.quantity), cols[4], y)
       y += 5.5
     })
 
@@ -231,67 +247,61 @@ function AnalysisPage({ onOpenDeepDive }) {
     doc.save(`${filename}.pdf`)
   }
 
+  const presets = [
+    { label: 'Today', from: isoDaysAgo(0) },
+    { label: '7 days', from: isoDaysAgo(7) },
+    { label: '30 days', from: isoDaysAgo(30) },
+  ]
+  const today = isoDaysAgo(0)
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500 mb-1.5">Admin</p>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Analysis</h1>
-          <p className="text-sm text-slate-500 mt-1">Search and review all trade history</p>
+          <h1 className="page-title">Analysis</h1>
+          <p className="page-subtitle">Search and review all trade history</p>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="grid grid-cols-2 gap-2 sm:flex flex-shrink-0">
           <button
             type="button"
             onClick={onOpenDeepDive}
-            className="group relative inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500 shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 overflow-hidden"
+            className="btn-primary px-4"
           >
-            <span className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="relative">
-              <path d="M12 2l1.09 3.26L16 6l-2.91.74L12 10l-1.09-3.26L8 6l2.91-.74L12 2z" fill="currentColor" opacity="0.9"/>
-              <path d="M19 11l.74 2.22L22 14l-2.26.78L19 17l-.74-2.22L16 14l2.26-.78L19 11z" fill="currentColor" opacity="0.6"/>
-              <path d="M6 15l.5 1.5L8 17l-1.5.5L6 19l-.5-1.5L4 17l1.5-.5L6 15z" fill="currentColor" opacity="0.4"/>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M21 21H4.6c-.56 0-.84 0-1.054-.109a1 1 0 0 1-.437-.437C3 20.24 3 19.96 3 19.4V3M7 14l4-4 4 4 6-6"/>
             </svg>
-            <span className="relative">Deep Dive</span>
+            Deep Dive
           </button>
           <button
             type="button"
             onClick={() => downloadReport(filteredTransactions, stats, { dateFrom, dateTo, searchQuery })}
             disabled={filteredTransactions.length === 0}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-medium text-slate-600 bg-white border border-slate-200 shadow-sm hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none transition-all duration-150"
+            className="btn-secondary px-4"
           >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
               <path d="M7 2v7M4 7l3 3 3-3M2 11h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
-            Download Report
+            <span className="sm:hidden">Report</span>
+            <span className="hidden sm:inline">Download Report</span>
           </button>
         </div>
       </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="card p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Purchases</p>
-          <p className="text-xl font-bold text-emerald-600 mt-1">{stats.buys}</p>
-          <p className="text-xs text-slate-400 mt-0.5">₹{stats.totalBuyValue.toLocaleString()}</p>
-        </div>
-        <div className="card p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Sales</p>
-          <p className="text-xl font-bold text-red-600 mt-1">{stats.sells}</p>
-          <p className="text-xs text-slate-400 mt-0.5">₹{stats.totalSellValue.toLocaleString()}</p>
-        </div>
-        <div className="card p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Net</p>
-          <p className={`text-xl font-bold mt-1 ${stats.totalSellValue - stats.totalBuyValue >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-            ₹{(stats.totalSellValue - stats.totalBuyValue).toLocaleString()}
-          </p>
-          <p className="text-xs text-slate-400 mt-0.5">Sell - Buy</p>
-        </div>
-        <div className="card p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Reversed</p>
-          <p className="text-xl font-bold text-amber-600 mt-1">{stats.reversed}</p>
-          <p className="text-xs text-slate-400 mt-0.5">transactions</p>
-        </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: 'Purchases', value: stats.buys, sub: `${fmtQty(stats.boughtQty)} units in`, color: 'text-emerald-700' },
+          { label: 'Sales', value: stats.sells, sub: `${fmtQty(stats.soldQty)} units out`, color: 'text-clay-700' },
+          { label: 'Net units', value: `${stats.netQty > 0 ? '+' : ''}${fmtQty(stats.netQty)}`, sub: 'In − Out', color: stats.netQty >= 0 ? 'text-slate-900' : 'text-red-600' },
+          { label: 'Reversed', value: stats.reversed, sub: 'transactions', color: 'text-amber-700' },
+        ].map((s) => (
+          <div key={s.label} className="card p-4">
+            <p className="text-[13px] text-slate-500">{s.label}</p>
+            <p className={`text-2xl font-semibold tracking-tight tabular-nums mt-1 ${s.color}`}>{s.value}</p>
+            <p className="text-xs text-slate-500 mt-0.5">{s.sub}</p>
+          </div>
+        ))}
       </div>
 
       {/* Search Bar */}
@@ -303,193 +313,139 @@ function AnalysisPage({ onOpenDeepDive }) {
           </svg>
         </div>
         <input
-          type="text"
+          type="search"
+          enterKeyHint="search"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search trades by product, party, invoice, godown, batch…"
-          className="w-full pl-11 pr-4 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 shadow-apple-xs focus:outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 transition-all"
+          placeholder="Search product, party, invoice…"
+          aria-label="Search trades"
+          className="w-full h-12 pl-11 pr-12 rounded-xl border border-slate-200 bg-white text-[15px] text-slate-900 placeholder:text-slate-400 shadow-apple-xs outline-none focus:border-clay-500 focus:ring-4 focus:ring-clay-500/10 transition-[border-color,box-shadow] [&::-webkit-search-cancel-button]:hidden"
         />
         {searchQuery && (
           <button
             type="button"
             onClick={() => setSearchQuery('')}
-            className="absolute inset-y-0 right-0 pr-4 flex items-center text-slate-400 hover:text-slate-600"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+            aria-label="Clear search"
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </button>
         )}
       </div>
 
       {/* Date Range Filter */}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-[140px]">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1 block">From</label>
-          <input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            max={dateTo || undefined}
-            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 shadow-apple-xs focus:outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 transition-all"
-          />
-        </div>
-        <div className="flex-1 min-w-[140px]">
-          <label className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1 block">To</label>
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            min={dateFrom || undefined}
-            max={new Date().toISOString().split('T')[0]}
-            className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 shadow-apple-xs focus:outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 transition-all"
-          />
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+          <div>
+            <label htmlFor="analysis-from" className="label">From</label>
+            <input
+              id="analysis-from"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              max={dateTo || undefined}
+              className="input-modern h-11 py-0"
+            />
+          </div>
+          <div>
+            <label htmlFor="analysis-to" className="label">To</label>
+            <input
+              id="analysis-to"
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              min={dateFrom || undefined}
+              max={today}
+              className="input-modern h-11 py-0"
+            />
+          </div>
         </div>
         {/* Quick presets */}
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => { const d = new Date().toISOString().split('T')[0]; setDateFrom(d); setDateTo(d) }}
-            className="px-3 py-2 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            onClick={() => { const d = new Date(); d.setDate(d.getDate() - 7); setDateFrom(d.toISOString().split('T')[0]); setDateTo(new Date().toISOString().split('T')[0]) }}
-            className="px-3 py-2 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
-          >
-            7 days
-          </button>
-          <button
-            type="button"
-            onClick={() => { const d = new Date(); d.setDate(d.getDate() - 30); setDateFrom(d.toISOString().split('T')[0]); setDateTo(new Date().toISOString().split('T')[0]) }}
-            className="px-3 py-2 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
-          >
-            30 days
-          </button>
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
+          {presets.map((p) => {
+            const active = dateFrom === p.from && dateTo === today
+            return (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => { setDateFrom(p.from); setDateTo(today) }}
+                aria-pressed={active}
+                className={`chip ${active ? 'chip-active' : ''}`}
+              >
+                {p.label}
+              </button>
+            )
+          })}
           {(dateFrom || dateTo) && (
             <button
               type="button"
               onClick={() => { setDateFrom(''); setDateTo('') }}
-              className="px-3 py-2 rounded-lg text-xs font-semibold text-red-500 hover:bg-red-50 transition-colors"
+              className="chip border-transparent text-red-600 hover:text-red-700 hover:border-transparent"
             >
-              Clear
+              Clear dates
             </button>
           )}
         </div>
       </div>
 
       {/* Results count */}
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-400">
-          {filteredTransactions.length === transactions.length
-            ? `${transactions.length} total trades`
-            : `${filteredTransactions.length} of ${transactions.length} trades`}
-        </p>
-      </div>
+      <p className="text-[13px] text-slate-500 tabular-nums">
+        {filteredTransactions.length === transactions.length
+          ? `${transactions.length} total trades`
+          : `${filteredTransactions.length} of ${transactions.length} trades`}
+      </p>
 
       {/* Transaction List */}
       {loading ? (
-        <div className="flex items-center justify-center py-32">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 border-[2.5px] border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-slate-400">Loading...</p>
-          </div>
+        <div className="space-y-3" aria-busy="true" aria-label="Loading trades">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="card p-4 sm:p-5 flex gap-3 animate-pulse">
+              <div className="w-10 h-10 rounded-full bg-slate-100" />
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-1/2 rounded bg-slate-200" />
+                <div className="h-3 w-1/3 rounded bg-slate-100" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : paginatedTransactions.length === 0 ? (
-        <div className="card py-16 text-center">
-          <p className="text-sm font-semibold text-slate-600">
+        <div className="card py-16 px-6 text-center">
+          <p className="text-sm font-semibold text-slate-700">
             {searchQuery ? 'No trades match your search' : 'No transactions yet'}
           </p>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-[13px] text-slate-500 mt-1">
             {searchQuery ? 'Try a different search term' : 'Trades will appear here once recorded'}
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {paginatedTransactions.map((txn) => (
-            <div key={txn.id} className={`card p-5 hover:shadow-apple-sm transition-shadow ${txn.is_reversed ? 'opacity-60 border-dashed' : ''}`}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${
-                      txn.transaction_type === 'buy'
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        : txn.transaction_type === 'return_in'
-                        ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                        : 'bg-red-50 text-red-700 border border-red-200'
-                    }`}>
-                      {txn.transaction_type === 'buy' ? '↓ Buy' : txn.transaction_type === 'return_in' ? '↩ Return' : '↑ Sell'}
-                    </span>
-                    {txn.is_reversed && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
-                        REVERSED
-                      </span>
-                    )}
-                    <span className="text-xs text-slate-400">
-                      {new Date(txn.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      {' · '}
-                      {new Date(txn.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <p className="text-sm font-semibold text-slate-900">{txn.product_name}</p>
-                  {txn.package_spec && (
-                    <p className="text-xs text-slate-500 mt-1">Package: {txn.package_spec}</p>
-                  )}
-                  {txn.party_name && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      {txn.transaction_type === 'buy' ? 'From' : 'To'}: {txn.party_name}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-400">
-                    <span><span className="font-semibold text-slate-700">{txn.quantity}</span> {Number(txn.quantity) === 1 ? txn.unit : txn.unit === 'box' ? 'boxes' : (txn.unit + 's')}</span>
-                    {txn.godown_name && <span>• {txn.godown_name}</span>}
-                    {txn.location_in_godown && <span>• {txn.location_in_godown}</span>}
-                    {txn.batch_code && <span>• Batch: {txn.batch_code}</span>}
-                    {txn.invoice_number && <span>• Inv: {txn.invoice_number}</span>}
-                  </div>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  {txn.total_price ? (
-                    <>
-                      <p className="text-lg font-bold text-slate-900">₹{txn.total_price.toLocaleString()}</p>
-                      {txn.unit_price && (
-                        <p className="text-xs text-slate-400">@ ₹{txn.unit_price}/{txn.unit}</p>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-sm text-slate-400">No price</p>
-                  )}
-                </div>
-              </div>
-              {txn.notes && (
-                <div className="mt-3 pt-3 border-t border-slate-100">
-                  <p className="text-xs text-slate-500">{txn.notes}</p>
-                </div>
-              )}
-            </div>
-          ))}
+        <div className="space-y-4">
+          <TransactionList>
+            {paginatedTransactions.map((txn) => (
+              <TransactionCard key={txn.id} txn={txn} showPackage />
+            ))}
+          </TransactionList>
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 pt-4">
+            <div className="flex items-center justify-between gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 transition-colors"
+                className="btn-secondary px-4"
               >
                 ← Prev
               </button>
-              <span className="text-xs text-slate-500 tabular-nums">
+              <span className="text-[13px] text-slate-500 tabular-nums">
                 Page {currentPage} of {totalPages}
               </span>
               <button
                 type="button"
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-40 disabled:hover:bg-slate-100 transition-colors"
+                className="btn-secondary px-4"
               >
                 Next →
               </button>

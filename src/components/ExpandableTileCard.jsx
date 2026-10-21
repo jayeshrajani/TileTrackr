@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { updateInventoryEntry, updateProduct, getProductFieldOptions, deleteProduct, getAllCategories, createCategory, getAllTiles } from '../services/inventoryService'
 import { formatQty } from '../utils/formatQty'
+import { getStockStatus, getSwatchStyle } from '../utils/tileVisual'
 
 const parsePackageCount = (value) => {
   if (value == null || value === '') return null
@@ -61,7 +62,6 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
     setEditMap((prev) => ({
       ...prev,
       [row.inventory_id]: { boxes: row.boxes, location: row.location_in_godown || '' },
-      [row.inventory_id]: { boxes: row.boxes },
     }))
   }
 
@@ -116,48 +116,71 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
     }
   }
 
-  return (
-    <div className="px-5 pb-6 pt-5 space-y-5">
+  const status = getStockStatus(totalBoxes)
 
-      {/* ── Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
-        <div className="min-w-0 flex-1">
-          {tile.brand && <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">{tile.brand}</p>}
-          <h2 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight leading-snug">
-            {tile.product_name || tile.name}
-          </h2>
-        </div>
-        <div className="flex gap-2 flex-shrink-0">
-          {isAdminLoggedIn && (
-            <>
-              <button
-                type="button"
-                onClick={() => setShowEditModal(true)}
-                className="btn-ghost px-3 py-1.5 text-xs whitespace-nowrap"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowDeleteModal(true)}
-                className="px-3 py-1.5 text-xs font-semibold text-red-500 hover:bg-red-50 rounded-xl transition-colors whitespace-nowrap"
-              >
-                Delete
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={onCollapse}
-            className="btn-secondary px-3 py-1.5 text-xs whitespace-nowrap"
-          >
-            Close
-          </button>
-        </div>
+  return (
+    <div>
+      {/* ── Swatch hero ── */}
+      <div className="relative h-40 lg:h-56" style={getSwatchStyle(tile)}>
+        <span className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-black/5" aria-hidden="true" />
+        <button
+          type="button"
+          onClick={onCollapse}
+          className="absolute right-3 top-3 w-10 h-10 rounded-full bg-white/90 backdrop-blur shadow-apple-sm flex items-center justify-center text-slate-700 hover:bg-white transition-colors"
+          aria-label="Close details"
+        >
+          <svg width="14" height="14" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+            <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+          </svg>
+        </button>
+        <span className="absolute left-4 bottom-4 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full bg-white/95 backdrop-blur text-xs font-medium text-slate-800 shadow-apple-xs">
+          <span className={`w-2 h-2 rounded-full ${status.dot}`} aria-hidden="true" />
+          {status.label}
+        </span>
       </div>
 
+    <div className="p-4 sm:p-6 space-y-5">
+
+      {/* ── Header ── */}
+      <div className="min-w-0">
+        {tile.brand && <p className="text-[13px] font-medium text-slate-500 mb-0.5">{tile.brand}</p>}
+        <h2 className="text-xl sm:text-2xl font-semibold text-slate-900 tracking-tight leading-snug">
+          {tile.product_name || tile.name}
+        </h2>
+      </div>
+
+      {/* ── Admin actions ── */}
+      {isAdminLoggedIn && (
+        <div className="grid grid-cols-[1fr_auto_auto] gap-2">
+          <button
+            type="button"
+            onClick={onQuickAdd}
+            className="btn-primary py-3"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+            Update Stock
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowEditModal(true)}
+            className="btn-secondary px-4 py-3"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowDeleteModal(true)}
+            className="btn-base px-4 py-3 text-red-600 hover:bg-red-50"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+
       {/* ── Stats row ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {[
           { label: 'Size', value: tile.size },
           { label: 'Total Stock', value: formatQty(totalBoxes, parsePackageCount(tile.package_spec ?? tile.pieces_per_box), unit) },
@@ -168,15 +191,15 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
           tile.category ? { label: 'Category', value: tile.category } : null,
           tile.grade ? { label: 'Grade', value: tile.grade } : null,
         ].filter(Boolean).map(({ label, value }) => (
-          <div key={label} className="bg-slate-50 rounded-xl px-4 py-3 border border-slate-100">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">{label}</p>
-            <p className="text-sm font-semibold text-slate-800">{value}</p>
+          <div key={label} className="bg-slate-50 rounded-xl px-3.5 py-3 min-w-0">
+            <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+            <p className="text-[15px] font-semibold text-slate-900 truncate tabular-nums">{value || '—'}</p>
           </div>
         ))}
         
         {/* Unit field - editable by admin */}
-        <div className="bg-slate-50 rounded-xl px-4 py-3 border border-slate-100 relative">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Unit</p>
+        <div className={`bg-slate-50 rounded-xl px-3.5 py-3 relative min-w-0 ${isAdminLoggedIn && editingUnit ? 'col-span-2 sm:col-span-1' : ''}`}>
+          <p className="text-xs text-slate-500 mb-0.5">Unit</p>
           {isAdminLoggedIn && editingUnit ? (
             <div className="flex items-center gap-2">
               <div ref={unitDropdownRef} className="relative flex-1">
@@ -185,22 +208,23 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
                   value={newUnit}
                   onChange={(e) => setNewUnit(e.target.value)}
                   onFocus={() => setUnitDropdownOpen(true)}
-                  className="input-modern py-1 text-xs w-full pr-6"
+                  className="input-modern py-1.5 px-2.5 text-sm w-full pr-7"
                   disabled={savingUnit}
                   placeholder="box, piece..."
                 />
                 <button
                   type="button"
                   onClick={() => setUnitDropdownOpen(!unitDropdownOpen)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600"
+                  aria-label="Show units"
                 >
-                  <svg width="8" height="8" viewBox="0 0 10 10" fill="none" className={`transition-transform ${unitDropdownOpen ? 'rotate-180' : ''}`}>
+                  <svg width="9" height="9" viewBox="0 0 10 10" fill="none" className={`transition-transform ${unitDropdownOpen ? 'rotate-180' : ''}`}>
                     <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>
                 
                 {unitDropdownOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-white rounded-xl shadow-apple border border-slate-100 overflow-hidden max-w-[200px]">
+                  <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-white rounded-xl shadow-apple-lg border border-slate-200/80 overflow-hidden min-w-[160px]">
                     {/* Existing units */}
                     {existingUnits.filter(u => u.toLowerCase().includes(newUnit.toLowerCase())).length > 0 && (
                       <div className="max-h-32 overflow-y-auto py-1">
@@ -214,8 +238,8 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
                                 setNewUnit(u)
                                 setUnitDropdownOpen(false)
                               }}
-                              className={`w-full text-left px-3 py-1.5 text-xs transition-colors hover:bg-slate-50 ${
-                                u === newUnit ? 'text-indigo-600 font-medium bg-indigo-50' : 'text-slate-700'
+                              className={`w-full text-left px-3 py-2.5 text-sm transition-colors hover:bg-slate-50 ${
+                                u === newUnit ? 'text-clay-700 font-medium bg-clay-50' : 'text-slate-700'
                               }`}
                             >
                               {u}
@@ -250,9 +274,14 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
                 type="button"
                 onClick={saveUnit}
                 disabled={savingUnit || !newUnit.trim()}
-                className="btn-primary px-2 py-1 text-xs flex-shrink-0"
+                className="btn-primary w-8 h-8 p-0 flex-shrink-0 rounded-lg"
+                aria-label="Save unit"
               >
-                {savingUnit ? '...' : '✓'}
+                {savingUnit ? '…' : (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                    <path d="M2 6.5l2.5 2.5L10 3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
               </button>
               <button
                 type="button"
@@ -262,19 +291,22 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
                   setUnitDropdownOpen(false)
                 }}
                 disabled={savingUnit}
-                className="btn-ghost px-2 py-1 text-xs flex-shrink-0"
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-200 flex-shrink-0"
+                aria-label="Cancel"
               >
-                ✕
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                  <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
               </button>
             </div>
           ) : (
             <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-semibold text-slate-800">{unit}</p>
+              <p className="text-[15px] font-semibold text-slate-900">{unit}</p>
               {isAdminLoggedIn && (
                 <button
                   type="button"
                   onClick={() => setEditingUnit(true)}
-                  className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+                  className="text-[13px] text-clay-700 hover:text-clay-800 font-medium -my-1 py-1"
                 >
                   Edit
                 </button>
@@ -284,89 +316,78 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
         </div>
       </div>
 
-      {/* ── Admin action ── */}
-      {isAdminLoggedIn && (
-        <button
-          type="button"
-          onClick={onQuickAdd}
-          className="btn-primary w-full justify-center py-3"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-            <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-          </svg>
-          Update Stock
-        </button>
-      )}
-
       {/* ── Batch breakdown ── */}
       {saveError && (
-        <p className="text-xs font-medium text-red-600 bg-red-50 rounded-xl px-4 py-2.5 border border-red-100">{saveError}</p>
+        <p className="text-[13px] font-medium text-red-700 bg-red-50 rounded-xl px-4 py-2.5 border border-red-100" role="alert">{saveError}</p>
       )}
       {batches.length > 0 && (
-        <div className="space-y-3 pt-1">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Stock by Batch</p>
+        <div className="space-y-2.5">
+          <p className="text-sm font-semibold text-slate-900">Stock by batch</p>
           {batches.map((batch) => (
-            <div key={batch.batch_code} className="bg-slate-50 rounded-xl p-4 space-y-3 border border-slate-100">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{batch.batch_code}</p>
+            <div key={batch.batch_code} className="rounded-xl border border-slate-200/80 overflow-hidden">
+              <p className="px-4 py-2 text-xs font-medium text-slate-500 bg-slate-50 border-b border-slate-200/80">Batch {batch.batch_code}</p>
               {batch.godowns.length === 0 ? (
-                <p className="text-xs text-slate-400">No stock in any godown.</p>
+                <p className="px-4 py-3 text-[13px] text-slate-500">No stock in any godown.</p>
               ) : (
-                <div className="space-y-2">
+                <div className="divide-y divide-slate-100">
                   {batch.godowns.map((row) => {
                     const edit = editMap[row.inventory_id]
                     const isLoading = loadingMap[row.inventory_id]
                     return (
                       <div
                         key={row.inventory_id}
-                        className="bg-white rounded-xl px-4 py-3 flex items-center justify-between gap-4 border border-slate-100"
+                        className="px-4 py-3 bg-white"
                       >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-slate-500">{row.godown_name}{row.location_in_godown ? ` · ${row.location_in_godown}` : ''}</p>
-                          <div className="flex gap-4 mt-1.5">
-                            <span className="text-xs text-slate-400">
-                              <span className="font-bold text-slate-800">{formatQty(row.boxes, parsePackageCount(tile.package_spec ?? tile.pieces_per_box), unit)}</span>
-                            </span>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13px] text-slate-500 truncate">{row.godown_name}{row.location_in_godown ? ` · ${row.location_in_godown}` : ''}</p>
+                            <p className="text-[15px] font-semibold text-slate-900 tabular-nums mt-0.5">
+                              {formatQty(row.boxes, parsePackageCount(tile.package_spec ?? tile.pieces_per_box), unit)}
+                            </p>
                           </div>
-                        </div>
 
-                        {isAdminLoggedIn && (
-                          edit ? (
-                            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                              <input
-                                type="number"
-                                min={0}
-                                value={edit.boxes}
-                                onChange={(e) => onEditChange(row.inventory_id, 'boxes', e.target.value)}
-                                className="input-modern w-20 py-1.5 text-xs"
-                                disabled={isLoading}
-                                placeholder="Qty"
-                              />
-                              <input
-                                type="text"
-                                value={edit.location || ''}
-                                onChange={(e) => onEditChange(row.inventory_id, 'location', e.target.value)}
-                                className="input-modern w-32 py-1.5 text-xs"
-                                disabled={isLoading}
-                                placeholder="Location"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => saveEdit(row.inventory_id)}
-                                disabled={isLoading}
-                                className="btn-primary px-3 py-1.5 text-xs whitespace-nowrap"
-                              >
-                                {isLoading ? '…' : 'Save'}
-                              </button>
-                            </div>
-                          ) : (
+                          {isAdminLoggedIn && !edit && (
                             <button
                               type="button"
                               onClick={() => startEdit(row)}
-                              className="btn-ghost px-3 py-1.5 text-xs"
+                              className="btn-ghost px-3 py-2 text-[13px]"
                             >
                               Edit
                             </button>
-                          )
+                          )}
+                        </div>
+
+                        {isAdminLoggedIn && edit && (
+                          <div className="mt-3 grid grid-cols-[88px_1fr_auto] gap-2">
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min={0}
+                              value={edit.boxes}
+                              onChange={(e) => onEditChange(row.inventory_id, 'boxes', e.target.value)}
+                              className="input-modern py-2 px-3"
+                              disabled={isLoading}
+                              placeholder="Qty"
+                              aria-label="Quantity"
+                            />
+                            <input
+                              type="text"
+                              value={edit.location || ''}
+                              onChange={(e) => onEditChange(row.inventory_id, 'location', e.target.value)}
+                              className="input-modern py-2 px-3 min-w-0"
+                              disabled={isLoading}
+                              placeholder="Location"
+                              aria-label="Location"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => saveEdit(row.inventory_id)}
+                              disabled={isLoading}
+                              className="btn-primary px-4 py-2"
+                            >
+                              {isLoading ? '…' : 'Save'}
+                            </button>
+                          </div>
                         )}
                       </div>
                     )
@@ -380,47 +401,34 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
 
       {/* ── Delete Confirmation Modal ── */}
       {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowDeleteModal(false)}>
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-          <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="h-1 w-full bg-red-500" />
-            <div className="p-7 space-y-5">
-              <div className="flex items-start gap-4">
-                <div className="w-11 h-11 rounded-xl bg-red-50 flex-shrink-0 flex items-center justify-center">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                    <polyline points="3 6 5 6 21 6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round"/>
-                    <path d="M19 6l-1 14H6L5 6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M10 11v6M14 11v6" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round"/>
-                    <path d="M9 6V4h6v2" stroke="#ef4444" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </div>
-                <div className="min-w-0">
-                  <h2 className="text-base font-bold text-slate-900 leading-snug">
-                    Delete "{tile.product_name || tile.name}"?
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">{tile.brand} · {tile.size}</p>
-                </div>
-              </div>
-              <p className="text-sm text-slate-600">
-                This action <span className="font-semibold text-red-500">cannot be undone</span>. All associated inventory records will also be deleted.
-              </p>
-              <div className="rounded-xl bg-red-50 border border-red-100 px-4 py-3 flex items-center gap-3">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="flex-shrink-0">
-                  <circle cx="8" cy="8" r="7" stroke="#ef4444" strokeWidth="1.5"/>
-                  <path d="M8 5v3.5M8 11h.01" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round"/>
+        <div className="modal-root" role="alertdialog" aria-modal="true">
+          <div className="modal-backdrop" onClick={() => setShowDeleteModal(false)} />
+          <div className="modal-panel sm:max-w-sm">
+            <div className="p-6 space-y-5">
+              <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18M19 6l-1 14H6L5 6M10 11v6M14 11v6M9 6V4h6v2"/>
                 </svg>
-                <p className="text-xs text-red-600 font-medium">Deleting a product is irreversible.</p>
               </div>
-              <div className="flex gap-2 pt-1">
-                <button type="button" onClick={() => setShowDeleteModal(false)} className="btn-secondary flex-1">
+              <div className="space-y-1.5">
+                <h2 className="text-lg font-semibold text-slate-900 leading-snug">
+                  Delete "{tile.product_name || tile.name}"?
+                </h2>
+                <p className="text-[13px] text-slate-500">{tile.brand} · {tile.size}</p>
+              </div>
+              <p className="text-sm text-slate-600 leading-relaxed">
+                This action <span className="font-semibold text-red-600">cannot be undone</span>. All associated inventory records will also be deleted.
+              </p>
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <button type="button" onClick={() => setShowDeleteModal(false)} className="btn-secondary py-3">
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleDeleteProduct}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold transition-opacity hover:bg-red-600"
+                  className="btn-danger py-3"
                 >
-                  Delete Product
+                  Delete
                 </button>
               </div>
             </div>
@@ -439,6 +447,7 @@ function ExpandableTileCard({ tile, batches, totalBoxes, onToggleFavorite, onQui
           }}
         />
       )}
+    </div>
     </div>
   )
 }
@@ -524,27 +533,22 @@ function EditProductModal({ tile, onClose, onSaved }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
-      <div className="relative bg-white rounded-2xl shadow-apple-modal w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-root" role="dialog" aria-modal="true" aria-labelledby="edit-product-title">
+      <div className="modal-backdrop" onClick={onClose} />
+      <div className="modal-panel sm:max-w-lg">
         
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl z-10">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500">admin</p>
-            <h2 className="text-lg font-bold text-slate-900">Edit Product</h2>
-          </div>
-          <button type="button" onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"
-          >
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <path d="M1 1l8 8M9 1L1 9" stroke="#64748b" strokeWidth="1.6" strokeLinecap="round"/>
+        <div className="modal-header">
+          <h2 id="edit-product-title" className="text-lg font-semibold text-slate-900">Edit Product</h2>
+          <button type="button" onClick={onClose} className="icon-btn -mr-2" aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
             </svg>
           </button>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+        <form onSubmit={handleSubmit} className="px-5 sm:px-6 py-5 space-y-4">
           {/* Product name */}
           <div>
             <label className="label">Product Name <span className="text-red-500">*</span></label>
@@ -558,7 +562,7 @@ function EditProductModal({ tile, onClose, onSaved }) {
           </div>
 
           {/* Brand + Category */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-3">
             <div>
               <label className="label">Brand</label>
               <input
@@ -655,11 +659,12 @@ function EditProductModal({ tile, onClose, onSaved }) {
                 ))}
               </datalist>
             </div>
-            <div>
+            <div className="col-span-2 sm:col-span-1">
               <label className="label">Package Spec (pieces/box)</label>
               <input
                 className="input-modern"
                 type="number"
+                inputMode="numeric"
                 min="1"
                 step="1"
                 value={form.package_spec}
@@ -669,11 +674,11 @@ function EditProductModal({ tile, onClose, onSaved }) {
             </div>
           </div>
 
-          {error && <p className="text-xs font-medium text-red-500">{error}</p>}
+          {error && <p className="text-[13px] font-medium text-red-600" role="alert">{error}</p>}
 
-          <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={saving} className="btn-primary flex-1">
+          <div className="modal-footer">
+            <button type="button" onClick={onClose} className="btn-secondary py-3">Cancel</button>
+            <button type="submit" disabled={saving} className="btn-primary py-3">
               {saving ? 'Saving…' : 'Save Changes'}
             </button>
           </div>

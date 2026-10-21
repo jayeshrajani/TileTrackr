@@ -582,20 +582,33 @@ export async function getLatestTiles(limit = 8) {
  * Fetch ALL products (no limit) with category name, favorites first.
  * Used for client-side search + filtering.
  */
+// PostgREST caps responses at 1000 rows, so page through to load everything.
+async function fetchAllRows(buildQuery, pageSize = 1000) {
+  const rows = []
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1)
+    if (error) return { data: null, error }
+    rows.push(...(data || []))
+    if (!data || data.length < pageSize) return { data: rows, error: null }
+  }
+}
+
 export async function getAllTiles() {
   try {
-    const { data: products, error } = await supabase
+    const { data: products, error } = await fetchAllRows(() => supabase
       .from('products')
       .select('*, categories(name)')
       .order('is_favorite', { ascending: false })
       .order('created_at', { ascending: false })
+      .order('id'))
 
     if (error) throw error
 
     // Fetch inventory totals per product
-    const { data: inventory, error: invError } = await supabase
+    const { data: inventory, error: invError } = await fetchAllRows(() => supabase
       .from('inventory')
       .select('product_id, stock_quantity')
+      .order('id'))
 
     if (invError) throw invError
 
@@ -622,6 +635,7 @@ export async function getAllTiles() {
  * Toggle is_favorite for a product in the DB and keep localStorage in sync
  */
 export async function toggleFavorite(productId, isFavorite) {
+  let ok = true
   try {
     const { error } = await supabase
       .from('products')
@@ -630,15 +644,17 @@ export async function toggleFavorite(productId, isFavorite) {
     if (error) throw error
   } catch (error) {
     console.error('Error toggling favorite:', error)
+    ok = false
   }
   // Keep localStorage in sync as a fallback
   const raw = localStorage.getItem(FAVORITES_KEY)
   let ids = []
   try { ids = JSON.parse(raw) || [] } catch { ids = [] }
   const set = new Set(ids)
-  if (isFavorite) set.add(productId)
+  if (isFavorite && ok) set.add(productId)
   else set.delete(productId)
   localStorage.setItem(FAVORITES_KEY, JSON.stringify([...set]))
+  return ok
 }
 
 /**
@@ -1071,7 +1087,7 @@ export async function deleteTransaction(txnId) {
  */
 export async function getAllTransactions() {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await fetchAllRows(() => supabase
       .from('transactions')
       .select(`
         *,
@@ -1084,6 +1100,7 @@ export async function getAllTransactions() {
         )
       `)
       .order('created_at', { ascending: false })
+      .order('id'))
 
     if (error) throw error
 

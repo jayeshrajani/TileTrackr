@@ -11,6 +11,7 @@ import AnalysisPage from './components/AnalysisPage'
 import AskTileTrackr from './components/AskTileTrackr'
 import DeepDivePage from './components/DeepDivePage'
 import { useDebouncedValue } from './hooks/useDebouncedValue'
+import { LOW_STOCK_THRESHOLD, getSwatchStyle } from './utils/tileVisual'
 
 
 import {
@@ -23,6 +24,47 @@ import {
 
 const ADMIN_SESSION_KEY = 'tileflow_admin_session'
 const LOGIN_SESSION_KEY = 'tileflow_login_session'
+
+const NAV_ITEMS = [
+  { id: 'home', label: 'Home', short: 'Home', adminOnly: false },
+  { id: 'trades', label: 'Trade', short: 'Trade', adminOnly: true },
+  { id: 'update', label: 'Update Inventory', short: 'Update', adminOnly: true },
+  { id: 'godowns', label: 'Godowns', short: 'Godowns', adminOnly: true },
+  { id: 'analysis', label: 'Analysis', short: 'Analysis', adminOnly: true },
+]
+
+const NAV_ICON_PATHS = {
+  home: 'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
+  trades: 'M7 20V4M3 8l4-4 4 4M17 4v16M13 16l4 4 4-4',
+  update: 'M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8',
+  godowns: 'M3 21V9l9-5 9 5v12M7 21v-8h10v8M7 17h10',
+  analysis: 'M3 3v18h18M8 16v-5M13 16V8M18 16v-3',
+}
+
+function NavIcon({ name }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={NAV_ICON_PATHS[name]} />
+    </svg>
+  )
+}
+
+function BrandMark({ size = 'md', tone = 'dark' }) {
+  const box = size === 'lg' ? 'w-14 h-14 rounded-2xl' : 'w-9 h-9 rounded-xl'
+  const icon = size === 'lg' ? 26 : 16
+  const bg = tone === 'clay' ? 'bg-clay-600' : 'bg-slate-900'
+  const accent = tone === 'clay' ? '#ffffff' : '#d0774f'
+  return (
+    <div className={`${box} ${bg} flex items-center justify-center flex-shrink-0`}>
+      <svg width={icon} height={icon} viewBox="0 0 15 15" fill="none" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="5" height="5" rx="1.2" fill={accent}/>
+        <rect x="8.5" y="1.5" width="5" height="5" rx="1.2" fill="white" fillOpacity="0.85"/>
+        <rect x="1.5" y="8.5" width="5" height="5" rx="1.2" fill="white" fillOpacity="0.85"/>
+        <rect x="8.5" y="8.5" width="5" height="5" rx="1.2" fill="white" fillOpacity="0.4"/>
+      </svg>
+    </div>
+  )
+}
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(
@@ -98,8 +140,8 @@ function App() {
     const q = debouncedQuery.toLowerCase().trim()
     if (!q) return result
 
-    // Normalize search query: treat * and × as equivalent
-    const normalizedQuery = q.replace(/[*×]/g, '[*×]')
+    // Treat *, × and x as the same size separator (sizes are stored like "800X2400")
+    const normalizedQuery = q.replace(/[*×]/g, '[*×x]')
 
     const scored = result
       .map((t) => {
@@ -131,13 +173,30 @@ function App() {
     return scored.map((x) => x.t)
   }, [allTiles, debouncedQuery, filters])
 
-  const handleToggleFavorite = (tileId) => {
+  const stockSummary = useMemo(() => {
+    let inStock = 0, low = 0, out = 0, units = 0
+    allTiles.forEach((t) => {
+      const b = Number(t.totalBoxes) || 0
+      if (b <= 0) { out++; return }
+      units += b
+      inStock++
+      if (b <= LOW_STOCK_THRESHOLD) low++
+    })
+    return { total: allTiles.length, inStock, low, out, healthy: inStock - low, units }
+  }, [allTiles])
+
+  const handleToggleFavorite = async (tileId) => {
     const tile = allTiles.find((t) => t.id === tileId)
     const newValue = !tile?.is_favorite
     setAllTiles((prev) =>
       prev.map((t) => (t.id === tileId ? { ...t, is_favorite: newValue } : t))
     )
-    toggleFavorite(tileId, newValue)
+    const ok = await toggleFavorite(tileId, newValue)
+    if (!ok) {
+      setAllTiles((prev) =>
+        prev.map((t) => (t.id === tileId ? { ...t, is_favorite: !newValue } : t))
+      )
+    }
   }
 
   const handleQuickAdd = (inventoryData) => {
@@ -157,7 +216,7 @@ function App() {
   const onAdminSignOut = () => {
     localStorage.setItem(ADMIN_SESSION_KEY, 'false')
     setIsAdminLoggedIn(false)
-    if (activeTab === 'update') setActiveTab('home')
+    if (activeTab !== 'home') setActiveTab('home')
   }
 
   const onAdminLogin = () => {
@@ -193,149 +252,160 @@ function App() {
   // ── Login Screen ──
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm">
-          {/* Logo */}
-          <div className="flex flex-col items-center mb-8">
-            <div className="w-14 h-14 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-2xl flex items-center justify-center shadow-apple-sm mb-4">
-              <svg width="28" height="28" viewBox="0 0 15 15" fill="none" aria-hidden="true">
-                <rect x="1.5" y="1.5" width="5" height="5" rx="1.2" fill="white"/>
-                <rect x="8.5" y="1.5" width="5" height="5" rx="1.2" fill="white" fillOpacity="0.7"/>
-                <rect x="1.5" y="8.5" width="5" height="5" rx="1.2" fill="white" fillOpacity="0.7"/>
-                <rect x="8.5" y="8.5" width="5" height="5" rx="1.2" fill="white" fillOpacity="0.4"/>
-              </svg>
-            </div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">TileTrackr</h1>
-            <p className="text-sm text-slate-500 mt-1">Enter your password to continue</p>
+      <div className="min-h-[100dvh] bg-slate-50 lg:grid lg:grid-cols-[1.1fr_1fr]">
+        {/* Brand panel (desktop) */}
+        <div className="hidden lg:flex relative flex-col justify-between p-12 bg-slate-950 text-white overflow-hidden">
+          <div
+            className="absolute inset-0 opacity-[0.55]"
+            style={getSwatchStyle({ product_name: 'Statuario marble', size: '600x1200', finish: 'glossy' })}
+            aria-hidden="true"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-slate-950/30" aria-hidden="true" />
+          <div className="relative flex items-center gap-3">
+            <BrandMark tone="clay" />
+            <span className="text-lg font-semibold tracking-tight">TileTrackr</span>
           </div>
+          <div className="relative max-w-md">
+            <h2 className="text-4xl font-semibold tracking-tight leading-[1.1]">Every box, batch and godown — in one place.</h2>
+            <p className="mt-4 text-[15px] text-slate-300 leading-relaxed">Check stock in seconds, record trades on the go and keep your godowns organised.</p>
+          </div>
+        </div>
 
-          {/* Login Card */}
-          <div className="card p-6 space-y-5">
+        <div className="min-h-[100dvh] flex items-center justify-center px-5 py-10">
+          <div className="w-full max-w-sm">
+            <div className="flex flex-col items-center lg:items-start text-center lg:text-left mb-8">
+              <div className="lg:hidden"><BrandMark size="lg" /></div>
+              <h1 className="mt-5 lg:mt-0 text-2xl lg:text-3xl font-semibold text-slate-900 tracking-tight">Welcome back</h1>
+              <p className="text-sm text-slate-500 mt-1">Enter your password to continue</p>
+            </div>
+
+            <div className="card p-5 sm:p-6 space-y-4 lg:shadow-apple-sm">
             <div>
-              <label className="label">Password</label>
+              <label htmlFor="site-password" className="label">Password</label>
               <input
+                id="site-password"
                 type="password"
                 value={sitePassword}
                 onChange={(e) => { setSitePassword(e.target.value); setSiteLoginError('') }}
                 onKeyDown={(e) => { if (e.key === 'Enter') onSiteLogin() }}
                 placeholder="Enter password"
-                className="input-modern"
+                className="input-modern py-3"
+                autoComplete="current-password"
                 autoFocus
               />
               {siteLoginError && (
-                <p className="mt-2 text-xs text-red-500 font-medium">{siteLoginError}</p>
+                <p className="mt-2 text-[13px] text-red-600 font-medium" role="alert">{siteLoginError}</p>
               )}
             </div>
             <button
               type="button"
               onClick={onSiteLogin}
-              className="btn-primary w-full justify-center py-3"
+              className="btn-primary w-full py-3"
             >
               Sign In
             </button>
+          </div>
           </div>
         </div>
       </div>
     )
   }
 
+  const visibleNav = NAV_ITEMS.filter((item) => !item.adminOnly || isAdminLoggedIn)
+  const isTabActive = (id) => activeTab === id || (id === 'analysis' && activeTab === 'deepdive')
+  const closeAdminLogin = () => { setIsLoginModalOpen(false); setLoginPasscode(''); setLoginError('') }
+  const pct = (n) => (stockSummary.total ? (n / stockSummary.total) * 100 : 0)
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-indigo-50/30">
+    <div className="min-h-[100dvh] bg-slate-50">
 
-      {/* ── Navbar ── */}
-      <header className="sticky top-0 z-30 bg-white/70 backdrop-blur-2xl border-b border-slate-100/80">
-        <div className="w-full mx-auto px-4 sm:px-6 md:px-8 h-16 flex items-center justify-between gap-4">
+      {/* ── Sidebar (desktop) ── */}
+      <aside className="hidden lg:flex fixed inset-y-0 left-0 z-30 w-[260px] flex-col bg-slate-950 text-slate-400">
+        <div className="h-20 px-6 flex items-center gap-3">
+          <BrandMark tone="clay" />
+          <div className="min-w-0">
+            <p className="text-[17px] font-semibold text-white tracking-tight leading-tight">TileTrackr</p>
+            <p className="text-xs text-slate-500">Inventory</p>
+          </div>
+        </div>
 
-          {/* Logo */}
-          <div className="flex items-center gap-2.5 flex-shrink-0 min-w-0">
-            <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl flex items-center justify-center shadow-apple-sm flex-shrink-0">
-              <svg width="16" height="16" viewBox="0 0 15 15" fill="none" aria-hidden="true">
-                <rect x="1.5" y="1.5" width="5" height="5" rx="1.2" fill="white"/>
-                <rect x="8.5" y="1.5" width="5" height="5" rx="1.2" fill="white" fillOpacity="0.7"/>
-                <rect x="1.5" y="8.5" width="5" height="5" rx="1.2" fill="white" fillOpacity="0.7"/>
-                <rect x="8.5" y="8.5" width="5" height="5" rx="1.2" fill="white" fillOpacity="0.4"/>
-              </svg>
+        <nav className="flex-1 px-3 pt-2 space-y-1 overflow-y-auto" aria-label="Primary">
+          {visibleNav.map((item) => {
+            const active = isTabActive(item.id)
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveTab(item.id)}
+                aria-current={active ? 'page' : undefined}
+                className={`relative w-full flex items-center gap-3 h-11 px-3 rounded-xl text-sm font-medium transition-colors ${
+                  active ? 'bg-white/[0.08] text-white' : 'hover:bg-white/[0.04] hover:text-slate-100'
+                }`}
+              >
+                {active && <span className="absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-full bg-clay-400" aria-hidden="true" />}
+                <span className={active ? 'text-clay-300' : ''}><NavIcon name={item.id} /></span>
+                {item.label}
+              </button>
+            )
+          })}
+        </nav>
+
+        <div className="p-3 space-y-2 border-t border-white/[0.06]">
+          <AskTileTrackr allTiles={allTiles} godowns={godowns} variant="sidebar" />
+          {isAdminLoggedIn ? (
+            <div className="flex items-center gap-3 rounded-xl bg-white/[0.04] p-2.5">
+              <div className="w-9 h-9 rounded-full bg-clay-600 text-white text-sm font-semibold flex items-center justify-center">A</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white leading-tight">Admin</p>
+                <p className="text-xs text-slate-500">Full access</p>
+              </div>
+              <button
+                type="button"
+                onClick={onAdminSignOut}
+                className="h-8 px-2.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+              >
+                Sign out
+              </button>
             </div>
-            <span className="font-bold text-[15px] sm:text-base text-slate-900 tracking-tight hidden xs:inline">TileTrackr</span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setLoginError(''); setIsLoginModalOpen(true) }}
+              className="w-full h-11 rounded-xl bg-white text-slate-900 text-sm font-semibold hover:bg-slate-100 transition-colors"
+            >
+              Admin login
+            </button>
+          )}
+        </div>
+      </aside>
+
+      {/* ── Top bar (phones & tablets) ── */}
+      <header
+        className="lg:hidden sticky top-0 z-30 bg-white/85 backdrop-blur-xl border-b border-slate-200/70"
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
+        <div className="px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between gap-3">
+
+          <div className="flex items-center gap-2.5 min-w-0">
+            <BrandMark />
+            <span className="font-semibold text-[17px] text-slate-900 tracking-tight truncate">TileTrackr</span>
           </div>
 
-          {/* Nav tabs */}
-          <nav className="flex items-center p-1 bg-slate-100/80 rounded-xl gap-0.5">
-            <button
-              onClick={() => setActiveTab('home')}
-              className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
-                activeTab === 'home'
-                  ? 'bg-white text-slate-900 shadow-apple-xs'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Home
-            </button>
-            {isAdminLoggedIn && (
-              <button
-                onClick={() => setActiveTab('trades')}
-                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
-                  activeTab === 'trades'
-                    ? 'bg-white text-slate-900 shadow-apple-xs'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Trade
-              </button>
-            )}
-            {isAdminLoggedIn && (
-              <button
-                onClick={() => setActiveTab('update')}
-                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
-                  activeTab === 'update'
-                    ? 'bg-white text-slate-900 shadow-apple-xs'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Update Inventory
-              </button>
-            )}
-            {isAdminLoggedIn && (
-              <button
-                onClick={() => setActiveTab('godowns')}
-                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
-                  activeTab === 'godowns'
-                    ? 'bg-white text-slate-900 shadow-apple-xs'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Godowns
-              </button>
-            )}
-            {isAdminLoggedIn && (
-              <button
-                onClick={() => setActiveTab('analysis')}
-                className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
-                  activeTab === 'analysis'
-                    ? 'bg-white text-slate-900 shadow-apple-xs'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Analysis
-              </button>
-            )}
-
-          </nav>
-
-          {/* Ask TileTrackr + Admin area */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
             <AskTileTrackr allTiles={allTiles} godowns={godowns} />
             {isAdminLoggedIn ? (
               <button
+                type="button"
                 onClick={onAdminSignOut}
-                className="text-xs sm:text-sm font-semibold px-3 sm:px-4 py-2 rounded-xl text-red-500 hover:bg-red-50 transition-all duration-200 flex-shrink-0 whitespace-nowrap"
+                className="h-9 px-3 rounded-xl text-sm font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors whitespace-nowrap"
               >
-                Sign Out
+                Sign out
               </button>
             ) : (
               <button
+                type="button"
                 onClick={() => { setLoginError(''); setIsLoginModalOpen(true) }}
-                className="btn-primary flex-shrink-0 py-2 px-4 sm:px-5 text-xs sm:text-sm whitespace-nowrap"
+                className="btn-primary h-9 py-0 px-4 whitespace-nowrap"
               >
                 Admin
               </button>
@@ -344,64 +414,114 @@ function App() {
         </div>
       </header>
 
+      {/* ── Bottom tab bar (phones & tablets) ── */}
+      {isAdminLoggedIn && (
+        <nav
+          className="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-xl border-t border-slate-200/80"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          aria-label="Primary"
+        >
+          <div className="grid grid-cols-5 max-w-xl mx-auto">
+            {visibleNav.map((item) => {
+              const active = isTabActive(item.id)
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveTab(item.id)}
+                  aria-current={active ? 'page' : undefined}
+                  className={`relative flex flex-col items-center justify-center gap-1 h-16 text-[11px] font-medium transition-colors ${
+                    active ? 'text-clay-600' : 'text-slate-500 active:text-slate-800'
+                  }`}
+                >
+                  {active && <span className="absolute top-0 h-0.5 w-8 rounded-full bg-clay-500" aria-hidden="true" />}
+                  <NavIcon name={item.id} />
+                  {item.short}
+                </button>
+              )
+            })}
+          </div>
+        </nav>
+      )}
+
       {/* ── Page Content ── */}
-      <main className="w-full mx-auto px-4 sm:px-6 md:px-8 lg:px-10 py-8 sm:py-10 max-w-7xl">
+      <div className="lg:pl-[260px]">
+      <main className={`w-full max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-10 pt-5 sm:pt-8 lg:pt-10 ${isAdminLoggedIn ? 'pb-28 lg:pb-14' : 'pb-12 lg:pb-14'}`}>
 
         {activeTab === 'home' && (
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
 
             {/* Page header */}
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
+            <div className="min-w-0">
+              <h1 className="page-title truncate">
                 {debouncedQuery ? `"${debouncedQuery}"` : 'Inventory'}
               </h1>
-              <p className="text-sm text-slate-500 mt-1">Browse and manage your tile collection</p>
+              <p className="page-subtitle">Browse and manage your tile collection</p>
             </div>
 
-            {/* Search */}
-            <SearchBar query={query} onChange={setQuery} />
-
-            {/* Filter bar */}
-            <FilterBar
-              allTiles={allTiles}
-              filters={filters}
-              onChange={setFilters}
-              resultCount={displayedTiles.length}
-              totalCount={allTiles.length}
-              isAdmin={isAdminLoggedIn}
-              onRefresh={refetchTiles}
-            />
-
-            {/* In Stock Toggle */}
-            <div className="flex items-center justify-between gap-4">
-              <button
-                onClick={() => setFilters(f => ({ ...f, inStockOnly: !f.inStockOnly }))}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 ${
-                  filters.inStockOnly
-                    ? 'bg-emerald-50 text-emerald-700 border-2 border-emerald-200 shadow-apple-xs'
-                    : 'bg-slate-100 text-slate-500 border-2 border-transparent hover:bg-slate-200'
-                }`}
-              >
-                <div className={`w-4 h-4 rounded-md flex items-center justify-center transition-all ${
-                  filters.inStockOnly ? 'bg-emerald-500' : 'bg-slate-300'
-                }`}>
-                  {filters.inStockOnly && (
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M2 6l2.5 2.5L10 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  )}
+            {/* Stock summary */}
+            {!loading && stockSummary.total > 0 && (
+              <section className="card overflow-hidden" aria-label="Stock summary">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-slate-100">
+                  {[
+                    { label: 'Products', value: stockSummary.total, sub: `${Math.round(stockSummary.units).toLocaleString('en-IN')} units on hand`, dot: 'bg-slate-900' },
+                    { label: 'In stock', value: stockSummary.inStock, sub: `${Math.round(pct(stockSummary.inStock))}% of catalogue`, dot: 'bg-emerald-500' },
+                    { label: 'Low stock', value: stockSummary.low, sub: `${LOW_STOCK_THRESHOLD} or fewer left`, dot: 'bg-amber-500' },
+                    { label: 'Out of stock', value: stockSummary.out, sub: 'Need restocking', dot: 'bg-slate-300' },
+                  ].map((s) => (
+                    <div key={s.label} className="bg-white px-4 py-3 sm:py-4 lg:px-6 lg:py-5">
+                      <p className="flex items-center gap-2 text-[13px] text-slate-500">
+                        <span className={`w-2 h-2 rounded-full ${s.dot}`} aria-hidden="true" />
+                        {s.label}
+                      </p>
+                      <p className="mt-1 sm:mt-1.5 text-[22px] sm:text-[26px] lg:text-[32px] leading-none font-semibold tracking-tight tabular-nums text-slate-900">
+                        {s.value.toLocaleString('en-IN')}
+                      </p>
+                      <p className="hidden sm:block mt-1.5 text-xs text-slate-500 truncate">{s.sub}</p>
+                    </div>
+                  ))}
                 </div>
-                In Stock
-              </button>
+                <div className="px-4 lg:px-6 py-2.5 sm:py-3 border-t border-slate-100">
+                  <div className="flex h-1.5 rounded-full overflow-hidden bg-slate-100" role="img" aria-label="Stock health distribution">
+                    <div className="bg-emerald-500 transition-[width] duration-700" style={{ width: `${pct(stockSummary.healthy)}%` }} />
+                    <div className="bg-amber-400 transition-[width] duration-700" style={{ width: `${pct(stockSummary.low)}%` }} />
+                    <div className="bg-slate-300 transition-[width] duration-700" style={{ width: `${pct(stockSummary.out)}%` }} />
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {/* Search + filters toolbar */}
+            <div className="space-y-3 lg:space-y-0 lg:flex lg:items-start lg:gap-4">
+              <div className="lg:w-[380px] flex-shrink-0">
+                <SearchBar query={query} onChange={setQuery} />
+              </div>
+              <div className="flex-1 min-w-0 lg:pt-1.5">
+                <FilterBar
+                  allTiles={allTiles}
+                  filters={filters}
+                  onChange={setFilters}
+                  resultCount={displayedTiles.length}
+                  totalCount={allTiles.length}
+                  isAdmin={isAdminLoggedIn}
+                  onRefresh={refetchTiles}
+                />
+              </div>
             </div>
 
             {/* Tiles grid */}
             {loading ? (
-              <div className="flex items-center justify-center py-32">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-8 h-8 border-[2.5px] border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-sm text-slate-400">Loading tiles...</p>
-                </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4" aria-busy="true" aria-label="Loading tiles">
+                {Array.from({ length: 10 }).map((_, i) => (
+                  <div key={i} className="card overflow-hidden animate-pulse">
+                    <div className="h-24 sm:h-28 bg-slate-100" />
+                    <div className="p-3.5 space-y-2.5">
+                      <div className="h-3 w-1/3 rounded bg-slate-200" />
+                      <div className="h-4 w-3/4 rounded bg-slate-200" />
+                      <div className="h-4 w-2/5 rounded bg-slate-100" />
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <LatestTilesGrid
@@ -444,67 +564,68 @@ function App() {
           <DeepDivePage onBack={() => setActiveTab('analysis')} />
         )}
       </main>
+      </div>
 
       {/* ── Admin Login Modal ── */}
       {isLoginModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
-          onClick={() => { setIsLoginModalOpen(false); setLoginPasscode(''); setLoginError('') }}
-        >
-          <div
-            className="w-full max-w-sm bg-white rounded-2xl shadow-apple-modal p-8 space-y-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-start justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-slate-900 tracking-tight">Admin Login</h2>
-                <p className="text-sm text-slate-500 mt-1">Enter your passcode to continue.</p>
+        <div className="modal-root" role="dialog" aria-modal="true" aria-labelledby="admin-login-title">
+          <div className="modal-backdrop" onClick={closeAdminLogin} />
+          <div className="modal-panel sm:max-w-sm">
+            <div className="p-5 sm:p-6 space-y-5">
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 id="admin-login-title" className="text-lg font-semibold text-slate-900 tracking-tight">Admin Login</h2>
+                  <p className="text-sm text-slate-500 mt-0.5">Enter your passcode to continue.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeAdminLogin}
+                  className="icon-btn -mr-2 -mt-1"
+                  aria-label="Close"
+                >
+                  <svg width="14" height="14" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                    <path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+                  </svg>
+                </button>
               </div>
-              <button
-                onClick={() => { setIsLoginModalOpen(false); setLoginPasscode(''); setLoginError('') }}
-                className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors flex-shrink-0"
-                aria-label="Close"
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                  <path d="M1 1l8 8M9 1L1 9" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-              </button>
-            </div>
 
-            {/* Passcode input */}
-            <div>
-              <label className="label">Passcode</label>
-              <input
-                type="password"
-                value={loginPasscode}
-                onChange={(e) => { setLoginPasscode(e.target.value); setLoginError('') }}
-                onKeyDown={(e) => { if (e.key === 'Enter') onAdminLogin() }}
-                placeholder="Enter passcode"
-                className="input-modern"
-                autoFocus
-              />
-              {loginError && (
-                <p className="mt-2 text-xs text-red-500 font-medium">{loginError}</p>
-              )}
-            </div>
+              {/* Passcode input */}
+              <div>
+                <label htmlFor="admin-passcode" className="label">Passcode</label>
+                <input
+                  id="admin-passcode"
+                  type="password"
+                  value={loginPasscode}
+                  onChange={(e) => { setLoginPasscode(e.target.value); setLoginError('') }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') onAdminLogin() }}
+                  placeholder="Enter passcode"
+                  className="input-modern py-3"
+                  autoComplete="current-password"
+                  autoFocus
+                />
+                {loginError && (
+                  <p className="mt-2 text-[13px] text-red-600 font-medium" role="alert">{loginError}</p>
+                )}
+              </div>
 
-            {/* Actions */}
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => { setIsLoginModalOpen(false); setLoginPasscode(''); setLoginError('') }}
-                className="btn-secondary flex-1 justify-center py-3"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onAdminLogin}
-                className="btn-primary flex-1 justify-center py-3"
-              >
-                Sign In
-              </button>
+              {/* Actions */}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={closeAdminLogin}
+                  className="btn-secondary py-3"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={onAdminLogin}
+                  className="btn-primary py-3"
+                >
+                  Sign In
+                </button>
+              </div>
             </div>
           </div>
         </div>
